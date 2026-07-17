@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# doug — an opinionated personal coding assistant, powered by pi's official
+# rebranding mechanism (piConfig in package.json, read via PI_PACKAGE_DIR).
+# pi is vendored in this repo's node_modules, pinned by package-lock.json.
+set -euo pipefail
+
+DOUG_HOME="${DOUG_HOME:-$HOME/.doug}"
+SHIM_DIR="$DOUG_HOME/shim"
+
+# Resolve this repo (bin/doug may itself be a symlink on PATH)
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+PI_PKG_DIR="$REPO_DIR/node_modules/@earendil-works/pi-coding-agent"
+if [[ ! -f "$PI_PKG_DIR/package.json" ]]; then
+  echo "doug: vendored pi missing. Run: cd $REPO_DIR && npm install" >&2
+  exit 1
+fi
+
+# Pick a node independent of the current project's mise activation: newest
+# mise install (pi needs node >=22.19), falling back to PATH's node.
+NODE_BIN="$(
+  for n in "$HOME/.local/share/mise/installs/node"/*/bin/node; do
+    [[ -x "$n" ]] && printf '%s\n' "$(cd "$(dirname "$n")" && pwd -P)/node"
+  done | sort -uV | tail -1
+)"
+[[ -n "$NODE_BIN" ]] || NODE_BIN="$(command -v node || true)"
+if [[ -z "$NODE_BIN" ]]; then
+  echo "doug: no node runtime found (need node >=22.19)" >&2
+  exit 1
+fi
+
+# Rebuild the shim on every launch so pi upgrades are picked up automatically.
+# It's one JSON write + a few symlinks.
+mkdir -p "$SHIM_DIR"
+"$NODE_BIN" - "$PI_PKG_DIR" "$SHIM_DIR" <<'EOF'
+const fs = require("fs");
+const path = require("path");
+const [piDir, shimDir] = process.argv.slice(2);
+
+const pkg = JSON.parse(fs.readFileSync(path.join(piDir, "package.json"), "utf8"));
+pkg.piConfig = { name: "doug", configDir: ".doug" };
+fs.writeFileSync(path.join(shimDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+
+for (const asset of ["dist", "docs", "examples", "README.md", "CHANGELOG.md"]) {
+  const link = path.join(shimDir, asset);
+  const target = path.join(piDir, asset);
+  fs.rmSync(link, { force: true });
+  if (fs.existsSync(target)) fs.symlinkSync(target, link);
+}
+EOF
+
+# Profile: who doug works for. First interactive run prompts for it.
+PROFILE="$DOUG_HOME/agent/profile.json"
+mkdir -p "$DOUG_HOME/agent"
+if [[ ! -f "$PROFILE" && -t 0 && -t 1 ]]; then
+  G=$'\033[32m'; D=$'\033[2m'; B=$'\033[1m'; R=$'\033[0m'
+  printf '%s\n' \
+    "" \
+    "${G}     █${R}        ${D}┌────────────────────────────────────────────┐${R}" \
+    "${G}    ███${R}       ${D}│${R}  Hi — I'm Doug, your personal coding       ${D}│${R}" \
+    "${G}   █████${R}   ${D}───┤${R}  assistant. Let's get acquainted:          ${D}│${R}" \
+    "${G}    ███${R}       ${D}│${R}  three quick questions and we're off.      ${D}│${R}" \
+    "${G}  ███████${R}     ${D}└────────────────────────────────────────────┘${R}" \
+    "${G}   █████${R}" \
+    "${G} █████████${R}" \
+    "${G}     █${R}" \
+    "${G}     █${R}" \
+    ""
+  read -r -p "  ${B}1.${R} Your name: " DOUG_NAME
+  read -r -p "  ${B}2.${R} What you do / your main stack: " DOUG_ROLE
+  read -r -p "  ${B}3.${R} Anything I should always keep in mind (optional): " DOUG_NOTES
+  "$NODE_BIN" -e 'const fs=require("fs");const [p,name,role,notes]=process.argv.slice(1);fs.writeFileSync(p,JSON.stringify({name,role,notes},null,2)+"\n")' "$PROFILE" "$DOUG_NAME" "$DOUG_ROLE" "$DOUG_NOTES"
+  printf '\n  Nice to meet you, %s. Profile saved to %s — edit anytime.\n\n' "${DOUG_NAME:-friend}" "$PROFILE"
+fi
+
+# Doug's identity: render the repo template + profile into the live system prompt.
+# Extensions stay symlinked from the repo.
+"$NODE_BIN" - "$REPO_DIR/agent/SYSTEM.template.md" "$PROFILE" "$DOUG_HOME/agent/SYSTEM.md" <<'EOF'
+const fs = require("fs");
+const [tplPath, profilePath, outPath] = process.argv.slice(2);
+let profile = {};
+try { profile = JSON.parse(fs.readFileSync(profilePath, "utf8")); } catch {}
+const name = (profile.name || "").trim() || "the user";
+const aboutLines = [];
+if (profile.role?.trim()) aboutLines.push(`- ${profile.role.trim()}`);
+if (profile.notes?.trim()) aboutLines.push(`- ${profile.notes.trim()}`);
+const about = aboutLines.length ? `\nAbout ${name}:\n${aboutLines.join("\n")}\n` : "";
+const out = fs.readFileSync(tplPath, "utf8").replaceAll("{{name}}", name).replaceAll("{{about}}", about);
+fs.rmSync(outPath, { force: true }); // may be a symlink from older doug versions — never write through it
+fs.writeFileSync(outPath, out);
+EOF
+ln -sfn "$REPO_DIR/agent/extensions" "$DOUG_HOME/agent/extensions"
+
+export PI_PACKAGE_DIR="$SHIM_DIR"
+exec "$NODE_BIN" "$PI_PKG_DIR/dist/cli.js" "$@"

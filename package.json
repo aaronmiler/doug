@@ -1,0 +1,15 @@
+{
+  "name": "doug",
+  "private": true,
+  "description": "An opinionated personal coding assistant — a branded pi distribution with profile onboarding and human-task guardrails",
+  "scripts": {
+    "postinstall": "patch-package",
+    "test": "node --experimental-strip-types --no-warnings test/guardrails.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.10"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
+  }
+}
