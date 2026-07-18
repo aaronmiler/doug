@@ -38,6 +38,12 @@ const cases: [string, "allow" | "block"][] = [
   ["cat ~/.claude/settings.json", "block"],
   ["jq 'keys' .env", "allow"],
   ["cat config/environment.rb", "allow"],
+  ["cat ~/.aws/credentials", "block"],
+  ["cat ~/.npmrc", "block"],
+  ["rg password ~/.pgpass", "block"],
+  ["head ~/.kube/config", "block"],
+  ["cat ~/.docker/config.json", "block"],
+  ["cat config.json", "allow"], // plain config.json is not ~/.docker's
   // destructive / privileged
   ["sudo rm -rf /tmp/x", "block"],
   ["rm -rf node_modules", "allow"],

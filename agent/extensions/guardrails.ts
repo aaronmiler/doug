@@ -1,10 +1,10 @@
 /**
  * doug guardrails — enforces the human-task boundaries on the bash tool.
- * The human's name comes from ~/.doug/agent/profile.json.
+ * The human's name comes from ~/.doug/profile.json.
  *
  * Two tiers:
  *  - BLOCK: never allowed from doug (mutative git, secret reads, catastrophic
- *    deletes, sudo, prod deploys). Doug prints the command for the human.
+ *    deletes, sudo, prod deploys). doug prints the command for the human.
  *  - CONFIRM: allowed only with live approval (installs and other
  *    machine-level changes). Hard-blocked when there's no UI to ask.
  */
@@ -15,10 +15,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 let USER = "the user";
-try {
-  const profilePath = join(process.env.DOUG_HOME ?? join(homedir(), ".doug"), "agent", "profile.json");
-  USER = JSON.parse(readFileSync(profilePath, "utf8")).name?.trim() || USER;
-} catch {}
+const DOUG_DIR = process.env.DOUG_HOME ?? join(homedir(), ".doug");
+// Flat ~/.doug/profile.json is canonical; agent/profile.json is the pre-flat-layout location.
+for (const p of [join(DOUG_DIR, "profile.json"), join(DOUG_DIR, "agent", "profile.json")]) {
+  try {
+    USER = JSON.parse(readFileSync(p, "utf8")).name?.trim() || USER;
+    break;
+  } catch {}
+}
 
 const HAND_OFF = `Do not retry or work around this. Print the exact command for ${USER} to run.`;
 
@@ -66,7 +70,7 @@ const BLOCK_RULES: { pattern: RegExp; reason: string }[] = [
     reason: `Recursive delete aimed at / or the home directory. ${HAND_OFF}`,
   },
   {
-    pattern: /(?:^|[\s;|&])(cat|bat|less|more|head|tail|cp|scp|open|code|vi|vim|nano|strings|xxd|base64|hexdump|grep|rg|awk|sed|sd)\b[^;|&]*(?:[\s/'"=]\.env(?:\.\w+)?\b|master\.key|credentials\.yml|\.claude\/settings\.json|auth\.json|\.netrc|id_rsa|id_ed25519)/,
+    pattern: /(?:^|[\s;|&])(cat|bat|less|more|head|tail|cp|scp|open|code|vi|vim|nano|strings|xxd|base64|hexdump|grep|rg|awk|sed|sd)\b[^;|&]*(?:[\s/'"=]\.env(?:\.\w+)?\b|master\.key|credentials\.yml|\.claude\/settings\.json|auth\.json|\.netrc|id_rsa|id_ed25519|\.aws\/credentials|\.npmrc|\.pgpass|\.kube\/config|\.docker\/config\.json)/,
     reason: `That file conventionally holds secrets — anything read enters context and transcripts. Inspect structure only (e.g. \`jq 'keys'\`) or ask ${USER} for the specific non-secret field.`,
   },
   {
@@ -90,6 +94,13 @@ const CONFIRM_RULES: { pattern: RegExp; label: string }[] = [
   { pattern: /\bdefaults\s+write\b/, label: "macOS defaults write" },
   { pattern: /\blaunchctl\s+(load|unload|bootstrap|bootout|enable|disable)\b/, label: "launchctl change" },
 ];
+
+/** True when guardrails already governs this command (block or confirm tier). */
+export function coveredByGuardrails(command: string): boolean {
+  return checkGit(command) !== undefined
+    || BLOCK_RULES.some((r) => r.pattern.test(command))
+    || CONFIRM_RULES.some((r) => r.pattern.test(command));
+}
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {

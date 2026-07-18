@@ -1,20 +1,17 @@
-# doug
+```
+      ██
+    ██████                                                  doug
+  ██████████
+    ██████
+ ████████████
+   ████████
+██████████████
+      ██
+      ██
 
 ```
-     █
-    ███
-   █████
-    ███
-  ███████
-   █████
- █████████
-     █
-     █
 
- doug
-```
-
-An opinionated personal coding assistant. Doug is a branded distribution of
+An opinionated personal coding assistant. doug is a branded distribution of
 [pi](https://github.com/earendil-works/pi-mono), built on pi's official
 rebranding mechanism — no fork, no global installs: pi is vendored and
 pinned in-repo, modified only by one small cosmetic patch
@@ -25,7 +22,7 @@ template, and enforces a clear line between his tasks and yours.
 ## How it works
 
 - pi is **vendored**: pinned in this repo's `package.json` + lockfile and
-  installed into the repo's `node_modules`. Doug depends on nothing global.
+  installed into the repo's `node_modules`. doug depends on nothing global.
 - `bin/doug` regenerates a shim package dir at `~/.doug/shim` on every launch:
   the vendored pi's `package.json` patched with
   `piConfig: { name: "doug", configDir: ".doug" }`, plus symlinks to pi's
@@ -34,9 +31,9 @@ template, and enforces a clear line between his tasks and yours.
   its branding from there, so the banner, config dir (`~/.doug`), project
   config dir (`.doug/`), and env vars (`DOUG_CODING_AGENT_DIR`, ...) all
   become doug's.
-- `agent/SYSTEM.template.md` is Doug's identity/system prompt, with
+- `agent/SYSTEM.template.md` is doug's identity/system prompt, with
   `{{name}}`/`{{about}}` placeholders. On every launch the launcher renders it
-  with `~/.doug/agent/profile.json` into `~/.doug/agent/SYSTEM.md`, where pi
+  with `~/.doug/profile.json` into `~/.doug/agent/SYSTEM.md`, where pi
   picks it up as a full system-prompt replacement. Missing profile on an
   interactive first run triggers a short onboarding prompt; non-interactive
   runs fall back to "the user". Edit template or profile; both take effect on
@@ -57,9 +54,9 @@ npm test       # optional: run the guardrails test suite
 
 pi's TUI header is hardcoded (π wordmark, "Pi can explain…" startup line), so
 `patches/` carries a small [patch-package](https://github.com/ds300/patch-package)
-patch applied by `postinstall`: the Douglas-fir boot mark with wordmark and
+patch applied by `postinstall`: the doug-fir boot mark with wordmark and
 keybinding hints inlined beside it (stacking on narrow terminals), and
-Doug-flavored startup text. That's the only place pi's code is modified.
+doug-flavored startup text. That's the only place pi's code is modified.
 
 ## Upgrading pi
 
@@ -70,19 +67,29 @@ no longer applies after a bump, patch-package will say so loudly — re-make the
 two-string patch against the new version and `npx patch-package
 @earendil-works/pi-coding-agent`.
 
-## What shapes Doug's behavior
+## What shapes doug's behavior
+
+Filesystem rule: **doug's own files live flat in `~/.doug/`; `~/.doug/agent/`
+belongs to the engine** (settings, auth, trust, sessions, the rendered
+SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 
 | File | Effect |
 |---|---|
-| repo `agent/SYSTEM.template.md` | Doug's identity — rendered with the profile into `~/.doug/agent/SYSTEM.md` on every launch |
-| `~/.doug/agent/profile.json` | Who doug works for: `name`, `role`, `notes`. Created by first-run onboarding; edit anytime |
+| repo `agent/SYSTEM.template.md` | doug's identity — rendered with the profile into `~/.doug/agent/SYSTEM.md` on every launch |
+| `~/.doug/profile.json` | Who doug works for: `name`, `role`, `notes`. Created by first-run onboarding; edit anytime (auto-migrated from the old `agent/` location) |
+| `~/.doug/DOUG.md` | The user's global context, CLAUDE.md-style — free markdown appended to the system prompt at render time. Keep it short; anything task-conditional belongs in a skill. (Project-level names are hardcoded: `AGENTS.md`, else `CLAUDE.md` — a project `DOUG.md` won't load) |
+| `~/.doug/skills/` | Lazy-loaded knowledge (stack conventions, homelab how-tos): one description line always in context, full body read on demand. Needs `"skills": ["~/.doug/skills"]` in `~/.doug/agent/settings.json` |
 | repo `agent/extensions/guardrails.ts` | Bash guardrails: blocks mutative git, secret reads, sudo, `tars deploy`, catastrophic `rm`; installs/system changes require a live confirm dialog (symlinked to `~/.doug/agent/extensions/`, hot-reload with `/reload`) |
+| repo `agent/extensions/flipflop.ts` | Flip-flop detector: a 3rd edit to the same file with the same command re-run between edits (spray-and-pray debugging) triggers a live check-in; blocked outright when running unattended |
+| repo `agent/extensions/permissions.ts` | Permission prompts. Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; `/manual` and `/auto` hop modes; the footer status shows the current mode. Plan mode: `/plan` enters a read-only discuss-and-ground phase (only `.doug/plans/` is writable, planning instructions injected per-turn); `/execute-plan [name]` starts a fresh session seeded with just the plan file |
 | `.doug/SYSTEM.md` (in a project) | Replaces the system prompt for that project |
 | `.doug/APPEND_SYSTEM.md` (in a project) | Appends to the system prompt instead of replacing |
-| `AGENTS.md` (in a project) | Project context appended to every prompt |
+| `AGENTS.md` / `CLAUDE.md` (in a project) | Project context, loaded from cwd and ancestors; `AGENTS.md` shadows `CLAUDE.md` in the same directory |
+| `~/.doug/config.json` | doug's own config (pi never reads it): `editMode: "manual" \| "auto"` sets the boot default for edit approvals (manual if absent) |
 | `~/.doug/agent/settings.json` | Model, theme, keybindings, enabled extensions (`/settings` in the TUI) |
 | `~/.doug/agent/{tools,prompts,themes}/` | Global custom tools, prompt templates, themes |
 | `.doug/{skills,prompts,themes,extensions}/` | Same, scoped to one project |
+| `.doug/plans/` (in a project) | Plan-mode output: `<date>-<slug>.md` files written during `/plan`, consumed by `/execute-plan`. Project-scoped on purpose — plans are grounded in one repo's `file:line` refs |
 | `~/.doug/agent/models.json` | Custom model/provider catalog |
 | `~/.doug/agent/auth.json` | Provider credentials (machine-local, never in this repo) |
 | `patches/` | Cosmetic branding patch applied to the vendored pi on `npm install` |
@@ -92,19 +99,41 @@ profile) applies globally; a project's `.doug/SYSTEM.md` replaces it for that
 project. Extensions/skills install via `doug install <source>` (pi's extension
 ecosystem, unchanged).
 
+## Custom skills
+
+Skills are lazy-loaded: only the frontmatter `description` sits in context
+(one line per skill); the body is read when a task matches it, or forced with
+`/skill:<name>`. A skill is a directory under `~/.doug/skills/` with a
+`SKILL.md` (helper scripts/references sit beside it):
+
+```markdown
+# ~/.doug/skills/rails/SKILL.md
+---
+name: rails
+description: Rails conventions — load before editing .rb files or writing migrations, specs, or controllers
+---
+<the actual conventions>
+```
+
+Two requirements: `"skills": ["~/.doug/skills"]` must be in
+`~/.doug/agent/settings.json` (one-time), and the `description` must be
+written as a "load when …" trigger — it is the only thing doug sees before
+deciding to read the body, so a vague description means the skill never
+fires. Project-scoped skills work the same under `.doug/skills/`.
+
 ## Node versions (mise)
 
 pi needs node >=22.19, but a project's `.node-version` can activate anything.
 The launcher never trusts the project-activated node: it picks the newest node
 under `~/.local/share/mise/installs/node/` (falling back to PATH's node only
-if mise has none). Doug therefore behaves identically in every directory,
+if mise has none). doug therefore behaves identically in every directory,
 regardless of what node the project pins.
 
 ## Layout
 
 ```
 bin/doug                    launcher (shim, profile onboarding, template render)
-agent/SYSTEM.template.md    Doug's identity template (rendered with profile.json)
+agent/SYSTEM.template.md    doug's identity template (rendered with profile.json)
 agent/extensions/           guardrails + future doug extensions (symlinked)
 patches/                    cosmetic branding patch for the vendored pi
 test/guardrails.test.ts     guardrails behavioral suite (npm test)

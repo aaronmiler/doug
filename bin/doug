@@ -51,14 +51,19 @@ for (const asset of ["dist", "docs", "examples", "README.md", "CHANGELOG.md"]) {
 EOF
 
 # Profile: who doug works for. First interactive run prompts for it.
-PROFILE="$DOUG_HOME/agent/profile.json"
-mkdir -p "$DOUG_HOME/agent"
+# doug-owned files live flat in DOUG_HOME; ~/.doug/agent/ is pi's machinery.
+PROFILE="$DOUG_HOME/profile.json"
+mkdir -p "$DOUG_HOME/agent" "$DOUG_HOME/skills"
+# One-time migration from the old nested location.
+if [[ ! -f "$PROFILE" && -f "$DOUG_HOME/agent/profile.json" ]]; then
+  mv "$DOUG_HOME/agent/profile.json" "$PROFILE"
+fi
 if [[ ! -f "$PROFILE" && -t 0 && -t 1 ]]; then
   G=$'\033[32m'; D=$'\033[2m'; B=$'\033[1m'; R=$'\033[0m'
   printf '%s\n' \
     "" \
     "${G}     █${R}        ${D}┌────────────────────────────────────────────┐${R}" \
-    "${G}    ███${R}       ${D}│${R}  Hi — I'm Doug, your personal coding       ${D}│${R}" \
+    "${G}    ███${R}       ${D}│${R}  Hi — I'm doug, your personal coding       ${D}│${R}" \
     "${G}   █████${R}   ${D}───┤${R}  assistant. Let's get acquainted:          ${D}│${R}" \
     "${G}    ███${R}       ${D}│${R}  three quick questions and we're off.      ${D}│${R}" \
     "${G}  ███████${R}     ${D}└────────────────────────────────────────────┘${R}" \
@@ -74,11 +79,12 @@ if [[ ! -f "$PROFILE" && -t 0 && -t 1 ]]; then
   printf '\n  Nice to meet you, %s. Profile saved to %s — edit anytime.\n\n' "${DOUG_NAME:-friend}" "$PROFILE"
 fi
 
-# Doug's identity: render the repo template + profile into the live system prompt.
-# Extensions stay symlinked from the repo.
-"$NODE_BIN" - "$REPO_DIR/agent/SYSTEM.template.md" "$PROFILE" "$DOUG_HOME/agent/SYSTEM.md" <<'EOF'
+# doug's identity: render the repo template + profile into the live system
+# prompt, appending ~/.doug/DOUG.md (the user's global context, CLAUDE.md-style)
+# if present. Extensions stay symlinked from the repo.
+"$NODE_BIN" - "$REPO_DIR/agent/SYSTEM.template.md" "$PROFILE" "$DOUG_HOME/agent/SYSTEM.md" "$DOUG_HOME/DOUG.md" <<'EOF'
 const fs = require("fs");
-const [tplPath, profilePath, outPath] = process.argv.slice(2);
+const [tplPath, profilePath, outPath, userPath] = process.argv.slice(2);
 let profile = {};
 try { profile = JSON.parse(fs.readFileSync(profilePath, "utf8")); } catch {}
 const name = (profile.name || "").trim() || "the user";
@@ -86,7 +92,10 @@ const aboutLines = [];
 if (profile.role?.trim()) aboutLines.push(`- ${profile.role.trim()}`);
 if (profile.notes?.trim()) aboutLines.push(`- ${profile.notes.trim()}`);
 const about = aboutLines.length ? `\nAbout ${name}:\n${aboutLines.join("\n")}\n` : "";
-const out = fs.readFileSync(tplPath, "utf8").replaceAll("{{name}}", name).replaceAll("{{about}}", about);
+let out = fs.readFileSync(tplPath, "utf8").replaceAll("{{name}}", name).replaceAll("{{about}}", about);
+let user = "";
+try { user = fs.readFileSync(userPath, "utf8").trim(); } catch {}
+if (user) out += `\nContext from ${name}'s DOUG.md (${userPath}):\n${user}\n`;
 fs.rmSync(outPath, { force: true }); // may be a symlink from older doug versions — never write through it
 fs.writeFileSync(outPath, out);
 EOF

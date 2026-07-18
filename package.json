@@ -4,7 +4,7 @@
   "description": "An opinionated personal coding assistant — a branded pi distribution with profile onboarding and human-task guardrails",
   "scripts": {
     "postinstall": "patch-package",
-    "test": "node --experimental-strip-types --no-warnings test/guardrails.test.ts"
+    "test": "for f in test/*.test.ts; do node --experimental-strip-types --no-warnings \"$f\" || exit 1; done"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.10"
