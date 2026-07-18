@@ -41,14 +41,35 @@ template, and enforces a clear line between his tasks and yours.
 
 ## Install
 
-Prerequisites: node >= 22.19 reachable (mise install or PATH), `~/.local/bin`
-on PATH.
+Prerequisites: git, node >= 22.19 reachable (mise install or PATH),
+`~/.local/bin` on PATH.
+
+One-liner (clones to `~/.local/share/doug`, or updates an existing install):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aaronmiler/doug/main/bootstrap.sh | sh
+```
+
+Or from a checkout:
 
 ```bash
 ./install.sh   # vendors pi (npm ci + branding patches), symlinks doug onto PATH
 doug           # first run: onboarding (profile.json), then /login for a provider
 npm test       # optional: run the guardrails test suite
 ```
+
+## Updating & versioning
+
+doug versions by git sha — no release numbers, `main` is the release.
+
+```bash
+doug update      # git pull --ff-only + re-run install.sh (npm ci if the lockfile moved)
+doug --version   # e.g. `doug 4024485 (2026-07-17) · pi 0.80.10`
+```
+
+`doug update` follows the launcher symlink back to whichever repo it points at
+(a dev checkout included), so there's only ever one copy to keep fresh.
+Re-running the curl one-liner does the same thing.
 
 ## Branding patches
 
@@ -61,8 +82,8 @@ doug-flavored startup text. That's the only place pi's code is modified.
 ## Upgrading pi
 
 Bump the version in `package.json`, then `npm install`. The shim is rebuilt on
-every launch, so no other step exists. (`doug update` self-update is
-intentionally inert — upgrades go through the lockfile.) If the branding patch
+every launch, so no other step exists. (`doug update` updates doug itself, not
+pi — pi upgrades go through the lockfile.) If the branding patch
 no longer applies after a bump, patch-package will say so loudly — re-make the
 two-string patch against the new version and `npx patch-package
 @earendil-works/pi-coding-agent`.
@@ -138,4 +159,5 @@ agent/extensions/           guardrails + future doug extensions (symlinked)
 patches/                    cosmetic branding patch for the vendored pi
 test/guardrails.test.ts     guardrails behavioral suite (npm test)
 install.sh                  vendors pi + puts `doug` on PATH
+bootstrap.sh                curl-able: clone (or pull) the repo, then install.sh
 ```
