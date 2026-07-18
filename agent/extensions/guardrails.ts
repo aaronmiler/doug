@@ -90,10 +90,6 @@ const BLOCK_RULES: { pattern: RegExp; reason: string }[] = [
     pattern: /(?:^|[\s;|&])(cat|bat|less|more|head|tail|cp|scp|open|code|vi|vim|nano|strings|xxd|base64|hexdump|grep|rg|awk|sed|sd)\b[^;|&]*(?:[\s/'"=]\.env(?:\.\w+)?\b|master\.key|credentials\.yml|\.claude\/settings\.json|auth\.json|\.netrc|id_rsa|id_ed25519|\.aws\/credentials|\.npmrc|\.pgpass|\.kube\/config|\.docker\/config\.json)/,
     reason: `That file conventionally holds secrets — anything read enters context and transcripts. Inspect structure only (e.g. \`jq 'keys'\`) or ask ${USER} for the specific non-secret field.`,
   },
-  {
-    pattern: /\btars\s+deploy\b/,
-    reason: `Production deploys are ${USER}'s call. ${HAND_OFF}`,
-  },
 ];
 
 const CONFIRM_RULES: { pattern: RegExp; label: string }[] = [

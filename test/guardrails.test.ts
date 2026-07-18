@@ -50,9 +50,6 @@ const cases: [string, "allow" | "block"][] = [
   ["rm -rf ~/", "block"],
   ["rm -rf $HOME/stuff", "block"],
   ["rm -f tmp/restart.txt", "allow"],
-  // prod
-  ["tars logs summit", "allow"],
-  ["tars deploy summit", "block"],
   // installs (no UI in tests → block); project-local installs allowed
   ["brew install wget", "block"],
   ["npm install", "allow"],
@@ -86,7 +83,6 @@ for (const [command, expected] of [
   ["git commit -m 'x'", "block"],
   ["sudo rm -rf /tmp/x", "block"],
   ["cat .env", "block"],
-  ["tars deploy summit", "block"],
 ] as [string, "allow" | "block"][]) await expect(command, expected, "push ");
 delete process.env.DOUG_PUSH;
 
@@ -97,7 +93,6 @@ for (const command of [
   "git push origin main",
   "sudo rm -rf /tmp/x",
   "cat .env",
-  "tars deploy summit",
   "rm -rf ~/",
 ]) await expect(command, "allow", "flat-out ");
 delete process.env.DOUG_FLAT_OUT;

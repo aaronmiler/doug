@@ -52,7 +52,7 @@ for (const cmd of ["ls -la", "rg TODO src/", "cat a.txt | jq .x", "fd -e ts", "g
 }
 
 // Guardrails-covered commands are not double-prompted here
-for (const cmd of ["git commit -m x", "brew install wget", "sudo ls", "tars deploy summit"]) {
+for (const cmd of ["git commit -m x", "brew install wget", "sudo ls"]) {
   const { result, prompted } = await run(cmd);
   check(`guardrails-covered skipped: ${cmd}`, result === undefined && !prompted);
 }
