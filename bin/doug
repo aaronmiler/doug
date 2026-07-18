@@ -7,6 +7,12 @@ set -euo pipefail
 DOUG_HOME="${DOUG_HOME:-$HOME/.doug}"
 SHIM_DIR="$DOUG_HOME/shim"
 
+# Project resources live in a standard .agents/ dir (drop-in friendly), set via
+# configDir below. That would also send pi's *global* dir to ~/.agents, so pin
+# it back to ~/.doug — getAgentDir() honors this env var before the ~/<configDir>
+# fallback, keeping machine-level config doug-specific while projects stay vanilla.
+export DOUG_CODING_AGENT_DIR="$DOUG_HOME/agent"
+
 # Resolve this repo (bin/doug may itself be a symlink on PATH)
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
@@ -113,7 +119,11 @@ const path = require("path");
 const [piDir, shimDir] = process.argv.slice(2);
 
 const pkg = JSON.parse(fs.readFileSync(path.join(piDir, "package.json"), "utf8"));
-pkg.piConfig = { name: "doug", configDir: ".doug" };
+// name → banner + DOUG_* env prefix; configDir → per-project resource dir.
+// .agents is the drop-in standard (AGENTS.md, .agents/{SYSTEM,APPEND_SYSTEM,
+// settings,skills}); plan-mode scratch lives in ~/.doug/plans/ instead, so no
+// repo has to gitignore it. Global dir is pinned to ~/.doug via env above.
+pkg.piConfig = { name: "doug", configDir: ".agents" };
 fs.writeFileSync(path.join(shimDir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
 
 for (const asset of ["dist", "docs", "examples", "README.md", "CHANGELOG.md"]) {

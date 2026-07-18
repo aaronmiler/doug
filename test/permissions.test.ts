@@ -5,7 +5,7 @@
  */
 import { mkdtempSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 // DOUG_HOME must be set before the module (which reads it at import time) loads.
 process.env.DOUG_HOME = mkdtempSync(join(tmpdir(), "doug-perm-test-"));
@@ -205,12 +205,12 @@ function editSession(opts: { hasUI?: boolean; choose?: string | ((options: strin
 // --- Plan mode ---
 const PROJECT = mkdtempSync(join(tmpdir(), "doug-plan-test-"));
 
-// /plan: edits blocked except .doug/plans, mutative bash blocked without prompting, read-only free
+// /plan: edits blocked except ~/.doug/plans/<project>, mutative bash blocked without prompting, read-only free
 {
   const s = editSession({ cwd: PROJECT });
   await s.plan();
   const editSrc = await s.edit("a.ts");
-  const editPlan = await s.write(join(PROJECT, ".doug", "plans", "2026-07-17-test.md"));
+  const editPlan = await s.write(join(process.env.DOUG_HOME!, "plans", basename(PROJECT), "2026-07-17-test.md"));
   const bashMut = await s.bash("npm run build");
   const bashRead = await s.bash("rg TODO src/");
   check("plan mode: source edit blocked without prompt", editSrc?.block === true && s.selects.length === 0);
@@ -234,7 +234,7 @@ const PROJECT = mkdtempSync(join(tmpdir(), "doug-plan-test-"));
 
 // pickPlan: newest wins, name filters, empty dir is undefined
 {
-  const plansDir = join(PROJECT, ".doug", "plans");
+  const plansDir = join(process.env.DOUG_HOME!, "plans", basename(PROJECT));
   writeFileSync(join(plansDir, "2026-07-16-older.md"), "old plan");
   writeFileSync(join(plansDir, "2026-07-17-newer.md"), "new plan");
   utimesSync(join(plansDir, "2026-07-16-older.md"), new Date("2026-07-16"), new Date("2026-07-16"));

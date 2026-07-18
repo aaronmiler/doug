@@ -25,12 +25,14 @@ template, and enforces a clear line between his tasks and yours.
   installed into the repo's `node_modules`. doug depends on nothing global.
 - `bin/doug` regenerates a shim package dir at `~/.doug/shim` on every launch:
   the vendored pi's `package.json` patched with
-  `piConfig: { name: "doug", configDir: ".doug" }`, plus symlinks to pi's
+  `piConfig: { name: "doug", configDir: ".agents" }`, plus symlinks to pi's
   `dist`, `docs`, `examples`, `README.md`, and `CHANGELOG.md`.
 - It points `PI_PACKAGE_DIR` at the shim and runs the vendored pi. pi reads
-  its branding from there, so the banner, config dir (`~/.doug`), project
-  config dir (`.doug/`), and env vars (`DOUG_CODING_AGENT_DIR`, ...) all
-  become doug's.
+  its branding from there — the banner and `DOUG_*` env vars become doug's.
+  Machine-level config stays doug-specific at `~/.doug` (pinned via
+  `DOUG_CODING_AGENT_DIR`, since `configDir` alone would send it to `~/.agents`),
+  while per-project resources use the standard `.agents/` dir (from `configDir`) —
+  so doug drops into any repo without leaving a branded config folder behind.
 - `agent/SYSTEM.template.md` is doug's identity/system prompt, with
   `{{name}}`/`{{about}}` placeholders. On every launch the launcher renders it
   with `~/.doug/profile.json` into `~/.doug/agent/SYSTEM.md`, where pi
@@ -124,21 +126,21 @@ SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 | `~/.doug/skills/` | Lazy-loaded knowledge (stack conventions, homelab how-tos): one description line always in context, full body read on demand. Loaded by default — the launcher points pi here via `--skill`, so no settings entry is needed |
 | repo `agent/extensions/guardrails.ts` | Bash guardrails: blocks mutative git, secret reads, sudo, catastrophic `rm`; installs/system changes require a live confirm dialog (symlinked to `~/.doug/agent/extensions/`, hot-reload with `/reload`) |
 | repo `agent/extensions/flipflop.ts` | Flip-flop detector: a 3rd edit to the same file with the same command re-run between edits (spray-and-pray debugging) triggers a live check-in; blocked outright when running unattended |
-| repo `agent/extensions/permissions.ts` | Permission prompts. Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; `/manual` and `/auto` hop modes; the footer status shows the current mode. Plan mode: `/plan` enters a read-only discuss-and-ground phase (only `.doug/plans/` is writable, planning instructions injected per-turn); `/execute-plan [name]` starts a fresh session seeded with just the plan file |
-| `.doug/SYSTEM.md` (in a project) | Replaces the system prompt for that project |
-| `.doug/APPEND_SYSTEM.md` (in a project) | Appends to the system prompt instead of replacing |
+| repo `agent/extensions/permissions.ts` | Permission prompts. Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; `/manual` and `/auto` hop modes; the footer status shows the current mode. Plan mode: `/plan` enters a read-only discuss-and-ground phase (only the session's `~/.doug/plans/<project>/` is writable, planning instructions injected per-turn); `/execute-plan [name]` starts a fresh session seeded with just the plan file |
+| `.agents/SYSTEM.md` (in a project) | Replaces the system prompt for that project |
+| `.agents/APPEND_SYSTEM.md` (in a project) | Appends to the system prompt instead of replacing |
 | `AGENTS.md` / `CLAUDE.md` (in a project) | Project context, loaded from cwd and ancestors; `AGENTS.md` shadows `CLAUDE.md` in the same directory |
 | `~/.doug/config.json` | doug's own config (pi never reads it): `editMode: "manual" \| "auto"` sets the boot default for edit approvals (manual if absent) |
 | `~/.doug/agent/settings.json` | Model, theme, keybindings, enabled extensions (`/settings` in the TUI) |
 | `~/.doug/agent/{tools,prompts,themes}/` | Global custom tools, prompt templates, themes |
-| `.doug/{skills,prompts,themes,extensions}/` | Same, scoped to one project |
-| `.doug/plans/` (in a project) | Plan-mode output: `<date>-<slug>.md` files written during `/plan`, consumed by `/execute-plan`. Project-scoped on purpose — plans are grounded in one repo's `file:line` refs |
+| `.agents/{skills,prompts,themes,extensions}/` | Same, scoped to one project |
+| `~/.doug/plans/<project>/` | Plan-mode output: `<date>-<slug>.md` files written during `/plan`, consumed by `/execute-plan`. Kept in the home dir (namespaced by project dir name) so no repo has to gitignore scratch plans; `/execute-plan` scopes to the current project. Plans are grounded in one repo's `file:line` refs |
 | `~/.doug/agent/models.json` | Custom model/provider catalog |
 | `~/.doug/agent/auth.json` | Provider credentials (machine-local, never in this repo) |
 | `patches/` | Cosmetic branding patch applied to the vendored pi on `npm install` |
 
 Precedence for identity: the rendered `~/.doug/agent/SYSTEM.md` (template +
-profile) applies globally; a project's `.doug/SYSTEM.md` replaces it for that
+profile) applies globally; a project's `.agents/SYSTEM.md` replaces it for that
 project. Extensions/skills install via `doug install <source>` (pi's extension
 ecosystem, unchanged).
 

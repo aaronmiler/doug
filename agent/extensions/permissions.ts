@@ -19,10 +19,10 @@
  * deliberate default, the session is the exception.
  *
  * Plan mode: /plan enters a discuss-and-ground phase — edits are blocked
- * except plan files in the project's .doug/plans/, mutative bash is blocked
- * without prompting, read-only exploration stays free, and planning
+ * except plan files in the home dir's ~/.doug/plans/<project>/, mutative bash
+ * is blocked without prompting, read-only exploration stays free, and planning
  * instructions are injected per-turn (no permanent token cost). The plan is
- * distilled into .doug/plans/<date>-<slug>.md; /execute-plan [name] then
+ * distilled into ~/.doug/plans/<project>/<date>-<slug>.md; /execute-plan [name] then
  * starts a fresh session seeded with only that file, so execution re-reads
  * nothing.
  *
@@ -33,7 +33,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { coveredByGuardrails, raceMode } from "./guardrails.ts";
 
 const DOUG_HOME = process.env.DOUG_HOME ?? join(homedir(), ".doug");
@@ -119,12 +119,12 @@ const MODE_STATUS: Record<EditMode, string> = {
   plan: "📋 plan mode",
 };
 
-const planInstructions = (user: string) => `
+const planInstructions = (user: string, plansDir: string) => `
 You are in plan mode: ${user} and you are designing a change together before any code gets written.
 - Discuss first. Surface ambiguity, ask about intent, propose alternatives; don't rush to a plan file.
 - Ground everything in this repository: read the relevant code (read-only commands are unrestricted) and cite exact file paths and line numbers. Never propose changes to code you haven't looked at.
 - Edits and mutative commands are blocked in plan mode — that's the mode working, not an obstacle.
-- When ${user} agrees the plan is ready, write it to .doug/plans/<yyyy-mm-dd>-<short-slug>.md (you pick the slug; announce the filename clearly) with sections:
+- When ${user} agrees the plan is ready, write it to ${plansDir}/<yyyy-mm-dd>-<short-slug>.md (you pick the slug; announce the filename clearly) with sections:
   ## Goal — what we're building and why, in a few sentences
   ## Grounding — exact file:line references, existing patterns to copy, constraints and decisions from this conversation, written so the implementer needs no further digging
   ## Steps — ordered, each naming its target files
@@ -165,7 +165,10 @@ export default function (pi: ExtensionAPI) {
     const race = raceMode();
     ctx.ui.setStatus("doug-mode", race ? `🏎️ ${race === "flat-out" ? "flat out" : "push"}` : MODE_STATUS[editMode]);
   };
-  const plansDirFor = (ctx: any) => resolve(ctx.cwd ?? process.cwd(), ".doug", "plans");
+  // Plans live in the home dir (namespaced by project dir name), not in the
+  // repo — so no project has to gitignore scratch plan files. Collisions
+  // between same-named dirs are accepted as close-enough.
+  const plansDirFor = (ctx: any) => join(DOUG_HOME, "plans", basename(resolve(ctx.cwd ?? process.cwd())));
   const setMode = (mode: EditMode, ctx: any) => {
     editMode = mode;
     showMode(ctx);
@@ -196,11 +199,11 @@ export default function (pi: ExtensionAPI) {
     },
   });
   pi.registerCommand("execute-plan", {
-    description: "Execute a plan from .doug/plans in a fresh session (newest, or /execute-plan <name>)",
+    description: "Execute a plan from ~/.doug/plans in a fresh session (newest for this project, or /execute-plan <name>)",
     handler: async (args: string, ctx: any) => {
       const plan = pickPlan(plansDirFor(ctx), args.trim());
       if (!plan) {
-        ctx.ui.notify(args.trim() ? `No plan matching "${args.trim()}" in .doug/plans` : "No plans in .doug/plans", "error");
+        ctx.ui.notify(args.trim() ? `No plan matching "${args.trim()}" in ~/.doug/plans` : "No plans for this project in ~/.doug/plans", "error");
         return;
       }
       const content = readFileSync(plan, "utf8");
@@ -216,9 +219,9 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.on("before_agent_start", async (event: any) => {
+  pi.on("before_agent_start", async (event: any, ctx: any) => {
     if (editMode !== "plan") return;
-    return { systemPrompt: event.systemPrompt + "\n" + planInstructions(USER) };
+    return { systemPrompt: event.systemPrompt + "\n" + planInstructions(USER, plansDirFor(ctx)) };
   });
 
   pi.on("tool_call", async (event, ctx) => {
@@ -233,7 +236,7 @@ export default function (pi: ExtensionAPI) {
         if (target.startsWith(plansDirFor(ctx) + "/")) return;
         return {
           block: true,
-          reason: `Plan mode: no edits yet. Discuss the change with ${USER} and distill it into a plan file under .doug/plans/ — that's the only writable location until /execute-plan.`,
+          reason: `Plan mode: no edits yet. Discuss the change with ${USER} and distill it into a plan file under ~/.doug/plans/ — that's the only writable location until /execute-plan.`,
         };
       }
       if (!ctx.hasUI) {
