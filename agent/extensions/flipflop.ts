@@ -8,18 +8,26 @@
  *
  * A new user prompt resets all tracking — the human steering means the loop
  * is already broken.
+ *
+ * Race modes (--push / --flat-out, see raceMode in guardrails.ts) skip the
+ * check entirely — headless runs have no human to check in with.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { raceMode } from "./guardrails.ts";
 
 let USER = "the user";
-try {
-  const profilePath = join(process.env.DOUG_HOME ?? join(homedir(), ".doug"), "agent", "profile.json");
-  USER = JSON.parse(readFileSync(profilePath, "utf8")).name?.trim() || USER;
-} catch {}
+const DOUG_DIR = process.env.DOUG_HOME ?? join(homedir(), ".doug");
+// Flat ~/.doug/profile.json is canonical; agent/profile.json is the pre-flat-layout location.
+for (const p of [join(DOUG_DIR, "profile.json"), join(DOUG_DIR, "agent", "profile.json")]) {
+  try {
+    USER = JSON.parse(readFileSync(p, "utf8")).name?.trim() || USER;
+    break;
+  } catch {}
+}
 
 const MAX_GAP_COMMANDS = 50;
 const MAX_TRACKED_FILES = 200;
@@ -39,6 +47,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
+    if (raceMode()) return;
     if (isToolCallEventType("bash", event)) {
       const command = (event.input.command ?? "").trim().replace(/\s+/g, " ");
       if (!command) return;

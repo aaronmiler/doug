@@ -132,5 +132,16 @@ function check(name: string, ok: boolean) {
   check("relative/absolute paths tracked as one file", r?.block === true);
 }
 
+// Race modes skip the check entirely (env-driven, set by bin/doug)
+for (const envVar of ["DOUG_PUSH", "DOUG_FLAT_OUT"]) {
+  process.env[envVar] = "1";
+  const s = setup(false);
+  await s.edit("a.ts"); await s.bash("npm test");
+  await s.edit("a.ts"); await s.bash("npm test");
+  const r = await s.edit("a.ts");
+  check(`${envVar}: same-command cycle allowed without UI`, r === undefined && s.confirms.length === 0);
+  delete process.env[envVar];
+}
+
 console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

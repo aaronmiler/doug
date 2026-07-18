@@ -85,6 +85,9 @@ doug --flat-out -p "..."  # everything --push does, plus guardrails off.
                           # Sandboxed runs (evals, containers) only.
 ```
 
+Both modes also skip the flip-flop detector — its check-in with a human has no
+one to ask headless.
+
 The flags just set `DOUG_PUSH=1` / `DOUG_FLAT_OUT=1`, so a harness can set the
 env vars directly instead. Race modes override the edit modes below
 (manual/auto/plan) for the whole run; the footer shows 🏎️ when one is active.
