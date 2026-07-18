@@ -1,0 +1,8 @@
+# CLI tools doug prefers but doesn't require — checked at install/update time.
+# doug falls back to the classic tool when one is missing; installing them just
+# makes doug faster and sharper. Format: <command>  <hint incl. install command>
+# Lines starting with # and blank lines are ignored.
+rg  ripgrep — faster grep for file contents  (brew install ripgrep)
+fd  faster, friendlier find                  (brew install fd)
+sd  intuitive find-and-replace vs sed        (brew install sd)
+jq  JSON processor for shell pipelines       (brew install jq)
