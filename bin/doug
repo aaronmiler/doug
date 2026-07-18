@@ -17,6 +17,19 @@ if [[ ! -f "$PI_PKG_DIR/package.json" ]]; then
   exit 1
 fi
 
+# Race modes for headless runs: --push lifts permission prompts, --flat-out
+# also lifts guardrails. Handed to the extensions as env vars, so a harness
+# can set DOUG_PUSH=1 / DOUG_FLAT_OUT=1 directly instead of using the flags.
+FILTERED=()
+for arg in "$@"; do
+  case "$arg" in
+    --push) export DOUG_PUSH=1 ;;
+    --flat-out) export DOUG_FLAT_OUT=1 ;;
+    *) FILTERED+=("$arg") ;;
+  esac
+done
+if ((${#FILTERED[@]})); then set -- "${FILTERED[@]}"; else set --; fi
+
 # doug's own subcommands, handled before anything reaches pi. (pi's built-in
 # self-update is useless here anyway — the vendored copy is lockfile-pinned.)
 case "${1:-}" in
@@ -31,6 +44,20 @@ case "${1:-}" in
     echo "doug: updating $REPO_DIR"
     git -C "$REPO_DIR" pull --ff-only
     exec "$REPO_DIR/install.sh"
+    ;;
+  --help|-h)
+    # Print doug's additions, then fall through to pi's help below.
+    cat <<'EOF'
+doug options (handled before pi's):
+  update         Update doug: git pull --ff-only + reinstall
+  --version      Show doug + vendored pi versions
+  --push         Headless: no permission prompts — edits free, bash allowlist
+                 skipped, installs auto-approved. Guardrails (mutative git,
+                 sudo, secret reads, deploys) still enforced.
+  --flat-out     Everything --push does, plus guardrails off.
+                 For sandboxed runs (evals, containers) only.
+
+EOF
     ;;
 esac
 

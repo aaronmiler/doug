@@ -71,6 +71,25 @@ doug --version   # e.g. `doug 4024485 (2026-07-17) · pi 0.80.10`
 (a dev checkout included), so there's only ever one copy to keep fresh.
 Re-running the curl one-liner does the same thing.
 
+## Headless & race modes
+
+pi's `-p` runs a prompt non-interactively, but doug's permission layers
+hard-block mutative work when there's no UI to ask. Two flags lift them, in
+increasing order of trust:
+
+```bash
+doug --push -p "..."      # no prompts: edits free, bash allowlist skipped,
+                          # installs auto-approved. Guardrails (mutative git,
+                          # sudo, secret reads, deploys) still enforced.
+doug --flat-out -p "..."  # everything --push does, plus guardrails off.
+                          # Sandboxed runs (evals, containers) only.
+```
+
+The flags just set `DOUG_PUSH=1` / `DOUG_FLAT_OUT=1`, so a harness can set the
+env vars directly instead. Race modes override the edit modes below
+(manual/auto/plan) for the whole run; the footer shows 🏎️ when one is active.
+Neither is ever a config default — the flag is the decision, per invocation.
+
 ## Branding patches
 
 pi's TUI header is hardcoded (π wordmark, "Pi can explain…" startup line), so

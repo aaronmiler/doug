@@ -25,13 +25,16 @@
  * distilled into .doug/plans/<date>-<slug>.md; /execute-plan [name] then
  * starts a fresh session seeded with only that file, so execution re-reads
  * nothing.
+ *
+ * Race modes (--push / --flat-out, see raceMode in guardrails.ts) lift all
+ * gating in this extension — for headless runs.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { coveredByGuardrails } from "./guardrails.ts";
+import { coveredByGuardrails, raceMode } from "./guardrails.ts";
 
 const DOUG_HOME = process.env.DOUG_HOME ?? join(homedir(), ".doug");
 const PERM_PATH = join(DOUG_HOME, "permissions.json");
@@ -159,7 +162,8 @@ export default function (pi: ExtensionAPI) {
   let editMode: EditMode = bootEditMode();
 
   const showMode = (ctx: any) => {
-    ctx.ui.setStatus("doug-mode", MODE_STATUS[editMode]);
+    const race = raceMode();
+    ctx.ui.setStatus("doug-mode", race ? `🏎️ ${race === "flat-out" ? "flat out" : "push"}` : MODE_STATUS[editMode]);
   };
   const plansDirFor = (ctx: any) => resolve(ctx.cwd ?? process.cwd(), ".doug", "plans");
   const setMode = (mode: EditMode, ctx: any) => {
@@ -218,6 +222,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
+    // Race modes lift all permission gating; guardrails still enforces its
+    // block tier under --push in its own handler.
+    if (raceMode()) return;
     if (isToolCallEventType("edit", event) || isToolCallEventType("write", event)) {
       if (editMode === "auto") return;
       const path = event.input.path ?? "";

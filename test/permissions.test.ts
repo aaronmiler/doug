@@ -143,6 +143,7 @@ function editSession(opts: { hasUI?: boolean; choose?: string | ((options: strin
     plan: () => commands.plan("", ctx),
     executePlan: (args = "") => commands["execute-plan"](args, ctx),
     agentStart: () => handlers.before_agent_start({ prompt: "hi", systemPrompt: "BASE" }, ctx),
+    sessionStart: () => handlers.session_start({}, ctx),
     selects,
     statuses,
     notices,
@@ -261,6 +262,30 @@ const PROJECT = mkdtempSync(join(tmpdir(), "doug-plan-test-"));
   const s2 = editSession({ cwd: mkdtempSync(join(tmpdir(), "doug-noplans-")) });
   await s2.executePlan();
   check("execute-plan with no plans notifies, no session", s2.newSessions.length === 0 && s2.notices.some((n) => n.includes("No plans")));
+}
+
+// --- Race modes: --push / --flat-out (env-driven) lift all gating here ---
+{
+  process.env.DOUG_PUSH = "1";
+  const s = editSession({ hasUI: false });
+  const edit = await s.edit("a.ts");
+  const bash = await s.bash("make deploy-docs");
+  await s.sessionStart();
+  check("push mode: edit free without UI despite manual mode", edit === undefined && s.selects.length === 0);
+  check("push mode: non-allowlisted mutative bash free without UI", bash === undefined);
+  check("push mode: footer shows race mode", s.statuses.some((t) => t.includes("push")));
+  delete process.env.DOUG_PUSH;
+}
+{
+  process.env.DOUG_FLAT_OUT = "1";
+  const s = editSession({ hasUI: false });
+  const edit = await s.edit("a.ts");
+  const bash = await s.bash("echo hi > out.txt");
+  await s.sessionStart();
+  check("flat-out mode: edit free without UI", edit === undefined && s.selects.length === 0);
+  check("flat-out mode: mutative bash free without UI", bash === undefined);
+  check("flat-out mode: footer shows race mode", s.statuses.some((t) => t.includes("flat out")));
+  delete process.env.DOUG_FLAT_OUT;
 }
 
 // config.json sets the boot mode (kept last: earlier scenarios rely on no config file)

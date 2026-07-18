@@ -26,6 +26,23 @@ for (const p of [join(DOUG_DIR, "profile.json"), join(DOUG_DIR, "agent", "profil
 
 const HAND_OFF = `Do not retry or work around this. Print the exact command for ${USER} to run.`;
 
+/**
+ * Race modes, for headless runs (doug -p). Set by bin/doug from --push /
+ * --flat-out, or directly by a harness via env:
+ *  - push (DOUG_PUSH=1): confirm tier auto-approves, permission prompts lift;
+ *    the block tier stays enforced.
+ *  - flat-out (DOUG_FLAT_OUT=1): everything off, block tier included. For
+ *    sandboxed runs only.
+ * Read at call time so tests can toggle env between cases.
+ */
+export type RaceMode = "push" | "flat-out" | undefined;
+export function raceMode(): RaceMode {
+  const on = (v?: string) => !!v && v !== "0";
+  if (on(process.env.DOUG_FLAT_OUT)) return "flat-out";
+  if (on(process.env.DOUG_PUSH)) return "push";
+  return undefined;
+}
+
 // Git subcommands that only read. Everything else is treated as mutative.
 const GIT_SAFE = new Set([
   "status", "log", "diff", "show", "blame", "grep", "shortlog", "describe",
@@ -107,6 +124,9 @@ export default function (pi: ExtensionAPI) {
     if (!isToolCallEventType("bash", event)) return;
     const command = event.input.command ?? "";
 
+    const mode = raceMode();
+    if (mode === "flat-out") return;
+
     const gitReason = checkGit(command);
     if (gitReason) return { block: true, reason: gitReason };
 
@@ -116,6 +136,7 @@ export default function (pi: ExtensionAPI) {
 
     for (const rule of CONFIRM_RULES) {
       if (!rule.pattern.test(command)) continue;
+      if (mode === "push") return; // confirm tier auto-approves under --push
       if (!ctx.hasUI) {
         return { block: true, reason: `Machine-level change (${rule.label}) needs ${USER}'s approval and no UI is available to ask. ${HAND_OFF}` };
       }
