@@ -121,7 +121,7 @@ SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 | repo `agent/SYSTEM.template.md` | doug's identity — rendered with the profile into `~/.doug/agent/SYSTEM.md` on every launch |
 | `~/.doug/profile.json` | Who doug works for: `name`, `role`, `notes`. Created by first-run onboarding; edit anytime (auto-migrated from the old `agent/` location) |
 | `~/.doug/DOUG.md` | The user's global context, CLAUDE.md-style — free markdown appended to the system prompt at render time. Keep it short; anything task-conditional belongs in a skill. (Project-level names are hardcoded: `AGENTS.md`, else `CLAUDE.md` — a project `DOUG.md` won't load) |
-| `~/.doug/skills/` | Lazy-loaded knowledge (stack conventions, homelab how-tos): one description line always in context, full body read on demand. Needs `"skills": ["~/.doug/skills"]` in `~/.doug/agent/settings.json` |
+| `~/.doug/skills/` | Lazy-loaded knowledge (stack conventions, homelab how-tos): one description line always in context, full body read on demand. Loaded by default — the launcher points pi here via `--skill`, so no settings entry is needed |
 | repo `agent/extensions/guardrails.ts` | Bash guardrails: blocks mutative git, secret reads, sudo, `tars deploy`, catastrophic `rm`; installs/system changes require a live confirm dialog (symlinked to `~/.doug/agent/extensions/`, hot-reload with `/reload`) |
 | repo `agent/extensions/flipflop.ts` | Flip-flop detector: a 3rd edit to the same file with the same command re-run between edits (spray-and-pray debugging) triggers a live check-in; blocked outright when running unattended |
 | repo `agent/extensions/permissions.ts` | Permission prompts. Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; `/manual` and `/auto` hop modes; the footer status shows the current mode. Plan mode: `/plan` enters a read-only discuss-and-ground phase (only `.doug/plans/` is writable, planning instructions injected per-turn); `/execute-plan [name]` starts a fresh session seeded with just the plan file |
@@ -158,11 +158,13 @@ description: Rails conventions — load before editing .rb files or writing migr
 <the actual conventions>
 ```
 
-Two requirements: `"skills": ["~/.doug/skills"]` must be in
-`~/.doug/agent/settings.json` (one-time), and the `description` must be
-written as a "load when …" trigger — it is the only thing doug sees before
-deciding to read the body, so a vague description means the skill never
-fires. Project-scoped skills work the same under `.doug/skills/`.
+`~/.doug/skills/` is a default resolution path — the launcher passes it to pi
+as `--skill`, so nothing needs adding to settings. The one requirement is the
+`description`: write it as a "load when …" trigger — it is the only thing doug
+sees before deciding to read the body, so a vague description means the skill
+never fires. Additional paths auto-discover with no config: project skills
+under `.doug/skills/` (on project trust) and vendor-neutral `~/.agents/skills/`.
+`--skill` is additive, so none of these are shadowed by the default.
 
 ## Node resolution
 

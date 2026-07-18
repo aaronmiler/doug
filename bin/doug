@@ -175,5 +175,20 @@ fs.writeFileSync(outPath, out);
 EOF
 ln -sfn "$REPO_DIR/agent/extensions" "$DOUG_HOME/agent/extensions"
 
+# doug resolves skills from ~/.doug/skills by default. pi auto-scans its own
+# agent dir (~/.doug/agent/skills), but doug keeps skills in the flat top-level
+# dir, so the launcher points pi there via --skill (additive: project and
+# ~/.agents skills still auto-discover and merge in). Kept out of settings.json
+# so that file stays engine-owned. An explicit --no-skills still wins.
+SKILL_ARGS=()
+case " $* " in
+  *" --no-skills "*|*" -ns "*) ;;
+  *) SKILL_ARGS=(--skill "$DOUG_HOME/skills") ;;
+esac
+
 export PI_PACKAGE_DIR="$SHIM_DIR"
-exec "$NODE_BIN" "$PI_PKG_DIR/dist/cli.js" "$@"
+if ((${#SKILL_ARGS[@]})); then
+  exec "$NODE_BIN" "$PI_PKG_DIR/dist/cli.js" "${SKILL_ARGS[@]}" "$@"
+else
+  exec "$NODE_BIN" "$PI_PKG_DIR/dist/cli.js" "$@"
+fi
