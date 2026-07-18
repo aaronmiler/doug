@@ -61,17 +61,47 @@ EOF
     ;;
 esac
 
-# Pick a node independent of the current project's mise activation: newest
-# mise install (pi needs node >=22.19), falling back to PATH's node.
-NODE_BIN="$(
-  for n in "$HOME/.local/share/mise/installs/node"/*/bin/node; do
-    [[ -x "$n" ]] && printf '%s\n' "$(cd "$(dirname "$n")" && pwd -P)/node"
-  done | sort -uV | tail -1
-)"
-[[ -n "$NODE_BIN" ]] || NODE_BIN="$(command -v node || true)"
-if [[ -z "$NODE_BIN" ]]; then
-  echo "doug: no node runtime found (need node >=22.19)" >&2
-  exit 1
+# Pick a node. The requirement is a version (pi's engines field), not a tool:
+# DOUG_NODE if set, else PATH's node when it satisfies, else the newest install
+# found under common version managers — so a project's pinned old node never
+# breaks doug, and no particular manager is required.
+MIN_NODE="$(sed -n 's/.*"node":[[:space:]]*">=\([0-9.]*\)".*/\1/p' "$PI_PKG_DIR/package.json" | head -1)"
+MIN_NODE="${MIN_NODE:-22.19.0}"
+
+node_ok() {
+  local v
+  v="$("$1" -v 2>/dev/null)" || return 1
+  v="${v#v}"
+  [[ "$(printf '%s\n' "$MIN_NODE" "$v" | sort -V | head -1)" == "$MIN_NODE" ]]
+}
+
+PATH_NODE="$(command -v node || true)"
+if [[ -n "${DOUG_NODE:-}" ]]; then
+  node_ok "$DOUG_NODE" || { echo "doug: DOUG_NODE=$DOUG_NODE is not a node >= $MIN_NODE" >&2; exit 1; }
+  NODE_BIN="$DOUG_NODE"
+elif [[ -n "$PATH_NODE" ]] && node_ok "$PATH_NODE"; then
+  NODE_BIN="$PATH_NODE"
+else
+  # Newest install across managers (mise, nvm, fnm, asdf, volta), by version.
+  NODE_BIN="$(
+    for n in "$HOME/.local/share/mise/installs/node"/*/bin/node \
+             "$HOME/.nvm/versions/node"/*/bin/node \
+             "$HOME/.local/share/fnm/node-versions"/*/installation/bin/node \
+             "$HOME/Library/Application Support/fnm/node-versions"/*/installation/bin/node \
+             "$HOME/.asdf/installs/nodejs"/*/bin/node \
+             "$HOME/.volta/tools/image/node"/*/bin/node; do
+      [[ -x "$n" ]] && v="$("$n" -v 2>/dev/null)" && printf '%s\t%s\n' "${v#v}" "$n"
+    done | sort -rV | head -1 | cut -f2 || true
+    # ^ pipefail guard: an unmatched glob fails the for segment, which would
+    #   otherwise kill the script (set -e) before the not-found error below.
+  )"
+  if [[ -z "$NODE_BIN" ]] || ! node_ok "$NODE_BIN"; then
+    FOUND=""
+    [[ -n "$PATH_NODE" ]] && FOUND=" (PATH has $("$PATH_NODE" -v 2>/dev/null || echo "a broken node"))"
+    echo "doug: needs node >= $MIN_NODE and none was found$FOUND." >&2
+    echo "doug: install one however you like (nvm, mise, fnm, asdf, volta, brew, nodejs.org), or point DOUG_NODE at a suitable binary." >&2
+    exit 1
+  fi
 fi
 
 # Rebuild the shim on every launch so pi upgrades are picked up automatically.

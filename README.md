@@ -41,8 +41,8 @@ template, and enforces a clear line between his tasks and yours.
 
 ## Install
 
-Prerequisites: git, node >= 22.19 reachable (mise install or PATH),
-`~/.local/bin` on PATH.
+Prerequisites: git, node >= 22.19 installed anywhere (PATH or any common
+version manager — no particular tooling required), `~/.local/bin` on PATH.
 
 One-liner (clones to `~/.local/share/doug`, or updates an existing install):
 
@@ -164,13 +164,20 @@ written as a "load when …" trigger — it is the only thing doug sees before
 deciding to read the body, so a vague description means the skill never
 fires. Project-scoped skills work the same under `.doug/skills/`.
 
-## Node versions (mise)
+## Node resolution
 
-pi needs node >=22.19, but a project's `.node-version` can activate anything.
-The launcher never trusts the project-activated node: it picks the newest node
-under `~/.local/share/mise/installs/node/` (falling back to PATH's node only
-if mise has none). doug therefore behaves identically in every directory,
-regardless of what node the project pins.
+pi declares its floor in `engines` (currently >=22.19), and the launcher reads
+it from there — the requirement is a version, not a tool. Resolution order:
+
+1. `DOUG_NODE` — explicit override; fails loudly if it doesn't satisfy.
+2. PATH's node, when it satisfies — whatever put it there (brew, nvm, a
+   project's pin) is fine.
+3. The newest install found under common version managers (mise, nvm, fnm,
+   asdf, volta), so a project whose `.node-version` pins an old node never
+   breaks doug.
+
+If nothing satisfies, doug says what it needs and every way to get it —
+no manager is ever required.
 
 ## Layout
 
