@@ -18,13 +18,18 @@
  * mode changes during a session are never written back — the config is the
  * deliberate default, the session is the exception.
  *
- * Plan mode: /plan enters a discuss-and-ground phase — edits are blocked
- * except plan files in the home dir's ~/.doug/plans/<project>/, mutative bash
- * is blocked without prompting, read-only exploration stays free, and planning
- * instructions are injected per-turn (no permanent token cost). The plan is
- * distilled into ~/.doug/plans/<project>/<date>-<slug>.md; /execute-plan [name] then
- * starts a fresh session seeded with only that file, so execution re-reads
- * nothing.
+ * Plan mode: /plan enters a discuss-and-ground phase — all edits and mutative
+ * bash are blocked, read-only exploration stays free, and planning instructions
+ * are injected per-turn (no permanent token cost). /plan is light by default;
+ * /plan deep asks for a comprehensive plan (switchable mid-plan). The plan is
+ * never written by the model directly — it calls the save_plan tool, whose
+ * typed schema (goal/grounding/steps/…) makes structure a precondition of
+ * saving, and the user approves the save (Save / Not yet / Push back) before
+ * anything lands. Saved plans live in ~/.doug/plans/<project>/ with a sibling
+ * .state.json tracking written/dispatched. /execute-plan [name] picks the newest
+ * un-dispatched plan (or a named one), confirms it (name + age + status), then
+ * seeds a fresh session with only that file and an instruction to trust the
+ * plan as its orientation rather than re-exploring the repo.
  *
  * Race modes (--push / --flat-out, see raceMode in guardrails.ts) lift all
  * gating in this extension — for headless runs.
@@ -112,6 +117,7 @@ function saveExact(command: string) {
 }
 
 type EditMode = "manual" | "auto" | "plan";
+type PlanDepth = "light" | "deep";
 
 const MODE_STATUS: Record<EditMode, string> = {
   manual: "✋ manual edits",
@@ -119,21 +125,110 @@ const MODE_STATUS: Record<EditMode, string> = {
   plan: "📋 plan mode",
 };
 
-const planInstructions = (user: string, plansDir: string) => `
-You are in plan mode: ${user} and you are designing a change together before any code gets written.
-- Discuss first. Surface ambiguity, ask about intent, propose alternatives; don't rush to a plan file.
-- Ground everything in this repository: read the relevant code (read-only commands are unrestricted) and cite exact file paths and line numbers. Never propose changes to code you haven't looked at.
-- Edits and mutative commands are blocked in plan mode — that's the mode working, not an obstacle.
-- When ${user} agrees the plan is ready, write it to ${plansDir}/<yyyy-mm-dd>-<short-slug>.md (you pick the slug; announce the filename clearly) with sections:
-  ## Goal — what we're building and why, in a few sentences
-  ## Grounding — exact file:line references, existing patterns to copy, constraints and decisions from this conversation, written so the implementer needs no further digging
-  ## Steps — ordered, each naming its target files
-  ## Verification — how to prove it works, kept token-cheap
-  ## Out of scope — what we explicitly decided not to do
-- The plan will be executed in a fresh session that sees ONLY the plan file. Everything the implementer needs must be in it.
-- After writing the file, tell ${user} to run /execute-plan when ready.`;
+const planInstructions = (user: string, depth: PlanDepth) => `
+You are in plan mode: ${user} and you are thinking a change through together before any code is written.
+- Discuss first. Surface ambiguity, propose alternatives; don't rush to save.
+- Ground in the actual code: read what's relevant (read-only commands are free) and cite exact file:line refs. Never plan changes to code you haven't opened.
+- Edits and mutative commands are blocked here — that's the mode working, not an obstacle.
+- Keep it proportionate: a small change deserves a short plan. Don't inflate a molehill into a mountain.
+- When ${user} agrees it's ready, call the save_plan tool — you never write the plan file yourself. ${user} approves the save; if they push back, fold in their notes and offer it again.
+- The plan runs later in a fresh session that sees ONLY the plan. Its grounding must be complete enough that the implementer can open the files named in the steps and edit them — without exploring the repo to figure out where things are.${
+    depth === "deep"
+      ? `\n- ${user} marked this a DEEP plan: be comprehensive. Exhaustive grounding (every relevant file:line, pattern, decision, constraint), every step enumerated, concrete verification. Err toward more detail — this is architecture-grade.`
+      : ""
+  }`;
 
-/** Resolve which plan file to execute: named match, or newest by mtime. */
+// Plain JSON Schema — this is exactly what typebox's Type.Object(...) emits
+// (typebox 1.x schemas are standard JSON Schema, no symbols), so pi validates
+// it identically without a bare `typebox` import that only resolves under pi's
+// jiti aliases at runtime, not under the test runner.
+const PLAN_PARAMS = {
+  type: "object",
+  required: ["goal", "grounding", "steps"],
+  properties: {
+    goal: { type: "string", description: "What we're building and why, in 1-3 sentences." },
+    grounding: {
+      type: "string",
+      description:
+        "The orientation the executor needs: exact file:line references, existing patterns to copy, and the constraints/decisions from this conversation. Write it so a fresh agent can open the files named in the steps and edit them WITHOUT exploring the repo to get its bearings.",
+    },
+    steps: {
+      type: "array",
+      items: { type: "string" },
+      minItems: 1,
+      description: "Ordered implementation steps, each naming its target file(s).",
+    },
+    verification: { type: "string", description: "How to prove it works: specific commands/tests and the expected outcome. Keep it token-cheap." },
+    out_of_scope: { type: "string", description: "What this plan deliberately does NOT do." },
+    slug: { type: "string", description: "Short kebab-case filename slug; derived from the goal if omitted." },
+  },
+} as const;
+
+interface PlanParams {
+  goal: string;
+  grounding: string;
+  steps: string[];
+  verification?: string;
+  out_of_scope?: string;
+  slug?: string;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "plan";
+}
+
+function renderPlan(p: PlanParams): string {
+  const parts = [
+    `## Goal\n\n${p.goal.trim()}`,
+    `## Grounding\n\n${p.grounding.trim()}`,
+    `## Steps\n\n${p.steps.map((s, i) => `${i + 1}. ${s.trim()}`).join("\n")}`,
+  ];
+  if (p.verification?.trim()) parts.push(`## Verification\n\n${p.verification.trim()}`);
+  if (p.out_of_scope?.trim()) parts.push(`## Out of scope\n\n${p.out_of_scope.trim()}`);
+  return parts.join("\n\n") + "\n";
+}
+
+/** Coarse human-readable age from an epoch-ms timestamp. */
+function humanAge(ms: number): string {
+  const s = Math.max(0, Date.now() - ms) / 1000;
+  if (s < 90) return `${Math.round(s)}s`;
+  const m = s / 60;
+  if (m < 90) return `${Math.round(m)}m`;
+  const h = m / 60;
+  if (h < 36) return `${Math.round(h)}h`;
+  return `${Math.round(h / 24)}d`;
+}
+
+// Sibling .state.json tracks each plan's lifecycle so /execute-plan can default
+// to the newest UN-dispatched plan and never silently re-run a stale one.
+type PlanState = Record<string, { written?: string; dispatched?: string | null; session?: string | null }>;
+const statePath = (dir: string) => join(dir, ".state.json");
+function loadState(dir: string): PlanState {
+  try {
+    return JSON.parse(readFileSync(statePath(dir), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function writeState(dir: string, s: PlanState) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(statePath(dir), JSON.stringify(s, null, 2) + "\n");
+}
+function stampWritten(dir: string, file: string) {
+  const s = loadState(dir);
+  s[file] = { ...s[file], written: new Date().toISOString(), dispatched: s[file]?.dispatched ?? null };
+  writeState(dir, s);
+}
+function stampDispatched(dir: string, file: string, session: string | null) {
+  const s = loadState(dir);
+  s[file] = { ...s[file], dispatched: new Date().toISOString(), session };
+  writeState(dir, s);
+}
+
+/** Resolve which plan to execute: a named match spans all plans; otherwise the
+ * newest UN-dispatched one (so a stale, already-run plan is never picked blind). */
 export function pickPlan(plansDir: string, name: string): string | undefined {
   let files: string[];
   try {
@@ -141,10 +236,14 @@ export function pickPlan(plansDir: string, name: string): string | undefined {
   } catch {
     return undefined;
   }
-  if (name) files = files.filter((f) => f.includes(name));
+  const state = loadState(plansDir);
+  files = name ? files.filter((f) => f.includes(name)) : files.filter((f) => !state[f]?.dispatched);
   const paths = files.map((f) => join(plansDir, f));
   return paths.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 }
+
+const EXEC_PREAMBLE =
+  "Execute the plan below. It is self-contained and is your orientation for this repository — read only the files named in the Steps that you are about to edit. Do NOT explore the repo to get your bearings or rebuild context; everything you need is in the plan. If something you genuinely need is missing from it, stop and say so rather than guessing. Follow the Steps in order.";
 
 const CONFIG_PATH = join(DOUG_HOME, "config.json");
 
@@ -160,10 +259,16 @@ function bootEditMode(): EditMode {
 
 export default function (pi: ExtensionAPI) {
   let editMode: EditMode = bootEditMode();
+  let planDepth: PlanDepth = "light";
 
   const showMode = (ctx: any) => {
     const race = raceMode();
-    ctx.ui.setStatus("doug-mode", race ? `🏎️ ${race === "flat-out" ? "flat out" : "push"}` : MODE_STATUS[editMode]);
+    const status = race
+      ? `🏎️ ${race === "flat-out" ? "flat out" : "push"}`
+      : editMode === "plan"
+        ? `📋 plan${planDepth === "deep" ? "·deep" : ""}`
+        : MODE_STATUS[editMode];
+    ctx.ui.setStatus("doug-mode", status);
   };
   // Plans live in the home dir (namespaced by project dir name), not in the
   // repo — so no project has to gitignore scratch plan files. Collisions
@@ -191,37 +296,125 @@ export default function (pi: ExtensionAPI) {
     },
   });
   pi.registerCommand("plan", {
-    description: "Plan mode: discuss and ground a change, then write a plan file",
-    handler: async (_args: string, ctx: any) => {
-      mkdirSync(plansDirFor(ctx), { recursive: true });
+    description: "Plan mode: discuss and ground a change before coding (/plan deep for a comprehensive plan)",
+    handler: async (args: string, ctx: any) => {
+      planDepth = /\bdeep\b/i.test(args) ? "deep" : "light";
       setMode("plan", ctx);
-      ctx.ui.notify("Plan mode — discuss, ground, distill. /execute-plan when the plan is written", "info");
+      ctx.ui.notify(
+        planDepth === "deep"
+          ? "Plan mode (deep) — comprehensive plan. Save with save_plan; /execute-plan when ready"
+          : "Plan mode — discuss, ground, then save_plan when ready. /plan deep for more depth",
+        "info",
+      );
     },
   });
   pi.registerCommand("execute-plan", {
-    description: "Execute a plan from ~/.doug/plans in a fresh session (newest for this project, or /execute-plan <name>)",
+    description: "Execute a plan from ~/.doug/plans in a fresh session (newest un-dispatched for this project, or /execute-plan <name>)",
     handler: async (args: string, ctx: any) => {
-      const plan = pickPlan(plansDirFor(ctx), args.trim());
+      const dir = plansDirFor(ctx);
+      const plan = pickPlan(dir, args.trim());
       if (!plan) {
-        ctx.ui.notify(args.trim() ? `No plan matching "${args.trim()}" in ~/.doug/plans` : "No plans for this project in ~/.doug/plans", "error");
+        ctx.ui.notify(
+          args.trim()
+            ? `No plan matching "${args.trim()}" in ~/.doug/plans`
+            : "No un-dispatched plans for this project — name one to re-run an executed plan",
+          "error",
+        );
         return;
       }
+      const file = basename(plan);
+      const st = loadState(dir)[file];
+      const status = st?.dispatched ? `already dispatched ${humanAge(Date.parse(st.dispatched))} ago` : "not yet dispatched";
+      if (ctx.hasUI) {
+        const RUN = "Execute";
+        const choice = await ctx.ui.select(`Execute this plan?\n\n${file}\nwritten ${humanAge(statSync(plan).mtimeMs)} ago · ${status}`, [RUN, "Cancel"]);
+        if (choice !== RUN) {
+          ctx.ui.notify("Cancelled", "info");
+          return;
+        }
+      }
       const content = readFileSync(plan, "utf8");
+      stampDispatched(dir, file, ctx.sessionManager.getSessionFile());
       setMode(bootEditMode(), ctx);
       await ctx.newSession({
         parentSession: ctx.sessionManager.getSessionFile(),
         withSession: async (fresh: any) => {
-          await fresh.sendUserMessage(
-            `Execute the plan below, from ${plan}. Follow its Steps in order; the Grounding section already contains the file references and patterns you need — trust it instead of re-exploring.\n\n${content}`,
-          );
+          await fresh.sendUserMessage(`${EXEC_PREAMBLE}\n\n(from ${plan})\n\n${content}`);
         },
       });
     },
   });
 
-  pi.on("before_agent_start", async (event: any, ctx: any) => {
+  pi.registerCommand("plans", {
+    description: "List saved plans for this project and their status (no execution)",
+    handler: async (_args: string, ctx: any) => {
+      const dir = plansDirFor(ctx);
+      let files: string[];
+      try {
+        files = readdirSync(dir).filter((f) => f.endsWith(".md"));
+      } catch {
+        files = [];
+      }
+      if (!files.length) {
+        ctx.ui.notify("No plans for this project yet — /plan to make one", "info");
+        return;
+      }
+      const state = loadState(dir);
+      const rows = files
+        .map((f) => ({ f, m: statSync(join(dir, f)).mtimeMs }))
+        .sort((a, b) => b.m - a.m)
+        .map(({ f, m }) => {
+          const st = state[f];
+          const status = st?.dispatched ? `dispatched ${humanAge(Date.parse(st.dispatched))} ago` : "not dispatched";
+          return `  ${f}  ·  ${humanAge(m)} old  ·  ${status}`;
+        });
+      ctx.ui.notify(`Plans in ${dir}:\n${rows.join("\n")}`, "info");
+    },
+  });
+
+  // save_plan is the ONLY way to persist a plan (plan mode blocks raw writes).
+  // The typed schema makes structure a precondition; the user approves the save.
+  pi.registerTool({
+    name: "save_plan",
+    label: "Save plan",
+    description: `Persist the agreed plan to a file. Plan mode only. Call this only once ${USER} has agreed the plan is ready — ${USER} confirms the save, and may push back with changes.`,
+    parameters: PLAN_PARAMS as any,
+    executionMode: "sequential",
+    async execute(_toolCallId: string, params: PlanParams, _signal: unknown, _onUpdate: unknown, ctx: any) {
+      if (editMode !== "plan") {
+        return { isError: true, content: [{ type: "text", text: "save_plan is only available in plan mode (/plan)." }] };
+      }
+      if (ctx.hasUI) {
+        const SAVE = "Save it";
+        const NOT_YET = "Not yet — keep refining";
+        const PUSH = "Push back with a note…";
+        const preview = `${params.goal.trim()}\n\nSteps:\n${params.steps.map((s, i) => `  ${i + 1}. ${s.trim()}`).join("\n")}`;
+        const choice = await ctx.ui.select(`Save this plan?\n\n${preview}`, [SAVE, NOT_YET, PUSH]);
+        if (choice === PUSH) {
+          const note = await ctx.ui.input("What needs to change?", "Your note to the planner");
+          return {
+            isError: true,
+            content: [{ type: "text", text: note?.trim() ? `${USER} pushed back — do not save yet: ${note.trim()}` : `${USER} wants to keep refining the plan.` }],
+          };
+        }
+        if (choice !== SAVE) {
+          return { isError: true, content: [{ type: "text", text: `${USER} isn't ready to save — keep refining the plan with them.` }] };
+        }
+      }
+      const dir = plansDirFor(ctx);
+      mkdirSync(dir, { recursive: true });
+      const file = `${today()}-${slugify(params.slug || params.goal)}.md`;
+      const path = join(dir, file);
+      writeFileSync(path, renderPlan(params));
+      stampWritten(dir, file);
+      ctx.ui?.notify?.(`Plan saved: ${path}`, "info");
+      return { content: [{ type: "text", text: `Plan saved to ${path}. Tell ${USER} to run /execute-plan when ready.` }] };
+    },
+  });
+
+  pi.on("before_agent_start", async (event: any) => {
     if (editMode !== "plan") return;
-    return { systemPrompt: event.systemPrompt + "\n" + planInstructions(USER, plansDirFor(ctx)) };
+    return { systemPrompt: event.systemPrompt + "\n" + planInstructions(USER, planDepth) };
   });
 
   pi.on("tool_call", async (event, ctx) => {
@@ -232,11 +425,9 @@ export default function (pi: ExtensionAPI) {
       if (editMode === "auto") return;
       const path = event.input.path ?? "";
       if (editMode === "plan") {
-        const target = resolve(ctx.cwd ?? process.cwd(), path);
-        if (target.startsWith(plansDirFor(ctx) + "/")) return;
         return {
           block: true,
-          reason: `Plan mode: no edits yet. Discuss the change with ${USER} and distill it into a plan file under ~/.doug/plans/ — that's the only writable location until /execute-plan.`,
+          reason: `Plan mode is read-only for code — no direct edits or writes. Discuss and ground the change with ${USER}, then call the save_plan tool to persist it (that's the only write path here).`,
         };
       }
       if (!ctx.hasUI) {

@@ -3,7 +3,7 @@
  * free, guardrails-covered commands are skipped, mutative commands prompt and
  * "always allow" persists a prefix. Run with: npm test
  */
-import { mkdtempSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -15,11 +15,13 @@ const { default: permissions, pickPlan } = await import("../agent/extensions/per
 function instantiate() {
   const handlers: Record<string, any> = {};
   const commands: Record<string, any> = {};
+  const tools: Record<string, any> = {};
   permissions({
     on: (name: string, fn: any) => { handlers[name] = fn; },
     registerCommand: (name: string, def: any) => { commands[name] = def.handler; },
+    registerTool: (def: any) => { tools[def.name] = def; },
   } as any);
-  return { handlers, commands };
+  return { handlers, commands, tools };
 }
 
 const handler = instantiate().handlers.tool_call;
@@ -107,8 +109,8 @@ for (const cmd of ["git commit -m x", "brew install wget", "sudo ls"]) {
 }
 
 // --- Edit modes: fresh instance per scenario (mode is session state) ---
-function editSession(opts: { hasUI?: boolean; choose?: string | ((options: string[]) => string); cwd?: string } = {}) {
-  const { handlers, commands } = instantiate();
+function editSession(opts: { hasUI?: boolean; choose?: string | ((options: string[]) => string); cwd?: string; input?: string } = {}) {
+  const { handlers, commands, tools } = instantiate();
   const selects: string[] = [];
   const statuses: string[] = [];
   const notices: string[] = [];
@@ -128,6 +130,7 @@ function editSession(opts: { hasUI?: boolean; choose?: string | ((options: strin
         selects.push(_title);
         return typeof opts.choose === "function" ? opts.choose(options) : opts.choose;
       },
+      input: async (_title: string, _placeholder?: string) => opts.input,
       setStatus: (_key: string, text: string) => { statuses.push(text); },
       notify: (text: string) => { notices.push(text); },
     },
@@ -141,6 +144,9 @@ function editSession(opts: { hasUI?: boolean; choose?: string | ((options: strin
     manual: () => commands.manual("", ctx),
     auto: () => commands.auto("", ctx),
     plan: () => commands.plan("", ctx),
+    planDeep: () => commands.plan("deep", ctx),
+    savePlan: (params: any) => tools.save_plan.execute("t1", params, undefined, undefined, ctx),
+    plans: () => commands.plans("", ctx),
     executePlan: (args = "") => commands["execute-plan"](args, ctx),
     agentStart: () => handlers.before_agent_start({ prompt: "hi", systemPrompt: "BASE" }, ctx),
     sessionStart: () => handlers.session_start({}, ctx),
@@ -204,23 +210,62 @@ function editSession(opts: { hasUI?: boolean; choose?: string | ((options: strin
 
 // --- Plan mode ---
 const PROJECT = mkdtempSync(join(tmpdir(), "doug-plan-test-"));
+const plansDirOf = (proj: string) => join(process.env.DOUG_HOME!, "plans", basename(proj));
 
-// /plan: edits blocked except ~/.doug/plans/<project>, mutative bash blocked without prompting, read-only free
+// /plan: all edits + mutative bash blocked (funnel to save_plan), read-only free
 {
   const s = editSession({ cwd: PROJECT });
   await s.plan();
   const editSrc = await s.edit("a.ts");
-  const editPlan = await s.write(join(process.env.DOUG_HOME!, "plans", basename(PROJECT), "2026-07-17-test.md"));
+  const editPlan = await s.write(join(plansDirOf(PROJECT), "2026-07-17-test.md"));
   const bashMut = await s.bash("npm run build");
   const bashRead = await s.bash("rg TODO src/");
   check("plan mode: source edit blocked without prompt", editSrc?.block === true && s.selects.length === 0);
-  check("plan mode: plan file write allowed", editPlan === undefined);
+  check("plan mode: raw write also blocked (funnel to save_plan)", editPlan?.block === true);
   check("plan mode: mutative bash blocked without prompt", bashMut?.block === true && s.selects.length === 0);
   check("plan mode: read-only bash free", bashRead === undefined);
   check("plan mode: indicator shows plan", s.statuses.some((t) => t.includes("plan")));
 }
 
-// Plan instructions inject only while in plan mode
+// save_plan: approval writes a structured file + stamps written state
+{
+  const proj = mkdtempSync(join(tmpdir(), "doug-saveplan-"));
+  const s = editSession({ cwd: proj, choose: "Save it" });
+  await s.plan();
+  const r = await s.savePlan({ goal: "Add a widget", grounding: "logic in Foo.tsx:12", steps: ["edit Foo.tsx"] });
+  const files = readdirSync(plansDirOf(proj)).filter((f: string) => f.endsWith(".md"));
+  check("save_plan writes a file on approval", r?.isError !== true && files.length === 1);
+  const md = readFileSync(join(plansDirOf(proj), files[0]), "utf8");
+  check("save_plan renders required sections", md.includes("## Goal") && md.includes("## Grounding") && md.includes("## Steps"));
+  const state = JSON.parse(readFileSync(join(plansDirOf(proj), ".state.json"), "utf8"));
+  check("save_plan stamps written, not dispatched", !!state[files[0]]?.written && state[files[0]]?.dispatched === null);
+}
+
+// save_plan: "not yet" and "push back" return feedback and write nothing
+{
+  const proj = mkdtempSync(join(tmpdir(), "doug-saveplan2-"));
+  const s = editSession({ cwd: proj, choose: "Not yet — keep refining" });
+  await s.plan();
+  const r = await s.savePlan({ goal: "g", grounding: "x", steps: ["y"] });
+  let wrote = false;
+  try { wrote = readdirSync(plansDirOf(proj)).some((f: string) => f.endsWith(".md")); } catch {}
+  check("save_plan 'not yet' returns feedback, no write", r?.isError === true && !wrote);
+
+  const s2 = editSession({ cwd: proj, choose: "Push back with a note…", input: "add error handling" });
+  await s2.plan();
+  const r2 = await s2.savePlan({ goal: "g", grounding: "x", steps: ["y"] });
+  check("save_plan 'push back' feeds the note back", r2?.isError === true && String(r2.content[0].text).includes("add error handling"));
+}
+
+// save_plan refused outside plan mode
+{
+  const proj = mkdtempSync(join(tmpdir(), "doug-saveplan3-"));
+  const s = editSession({ cwd: proj });
+  const r = await s.savePlan({ goal: "g", grounding: "x", steps: ["y"] });
+  check("save_plan refused outside plan mode", r?.isError === true);
+}
+
+// Plan instructions inject only in plan mode; /plan deep escalates mid-plan
 {
   const s = editSession({ cwd: PROJECT });
   const before = await s.agentStart();
@@ -230,11 +275,15 @@ const PROJECT = mkdtempSync(join(tmpdir(), "doug-plan-test-"));
   const after = await s.agentStart();
   check("plan instructions only inject in plan mode",
     before === undefined && during?.systemPrompt?.includes("plan mode") && during.systemPrompt.startsWith("BASE") && after === undefined);
+  await s.planDeep();
+  const deep = await s.agentStart();
+  check("/plan deep escalates to comprehensive instructions", deep?.systemPrompt?.includes("DEEP") === true);
 }
 
-// pickPlan: newest wins, name filters, empty dir is undefined
+// pickPlan: newest un-dispatched wins, name filters, empty dir is undefined
 {
-  const plansDir = join(process.env.DOUG_HOME!, "plans", basename(PROJECT));
+  const plansDir = plansDirOf(PROJECT);
+  mkdirSync(plansDir, { recursive: true });
   writeFileSync(join(plansDir, "2026-07-16-older.md"), "old plan");
   writeFileSync(join(plansDir, "2026-07-17-newer.md"), "new plan");
   utimesSync(join(plansDir, "2026-07-16-older.md"), new Date("2026-07-16"), new Date("2026-07-16"));
@@ -243,25 +292,65 @@ const PROJECT = mkdtempSync(join(tmpdir(), "doug-plan-test-"));
   check("pickPlan: missing dir", pickPlan(join(PROJECT, "nope"), "") === undefined);
 }
 
-// /execute-plan: fresh session seeded with the plan, mode reset, parent recorded
+// pickPlan: dispatched plans are skipped for the default (no-name) pick
 {
-  const s = editSession({ cwd: PROJECT });
-  await s.plan();
+  const proj = mkdtempSync(join(tmpdir(), "doug-dispatch-"));
+  const plansDir = plansDirOf(proj);
+  mkdirSync(plansDir, { recursive: true });
+  writeFileSync(join(plansDir, "2026-07-16-a.md"), "a");
+  writeFileSync(join(plansDir, "2026-07-17-b.md"), "b");
+  utimesSync(join(plansDir, "2026-07-16-a.md"), new Date("2026-07-16"), new Date("2026-07-16"));
+  writeFileSync(join(plansDir, ".state.json"), JSON.stringify({ "2026-07-17-b.md": { dispatched: "2026-07-17T00:00:00Z" } }));
+  check("pickPlan: skips dispatched for default pick", pickPlan(plansDir, "")?.endsWith("a.md") === true);
+  check("pickPlan: named pick still finds a dispatched plan", pickPlan(plansDir, "b")?.endsWith("b.md") === true);
+}
+
+// /execute-plan: confirm, fresh session seeded, mode reset, parent recorded, dispatched stamped
+{
+  const s = editSession({ cwd: PROJECT, choose: "Execute" });
   await s.executePlan();
   const seeded = s.sentMessages[0] ?? "";
   check("execute-plan seeds new session with plan content", s.newSessions.length === 1 && seeded.includes("new plan"));
+  check("execute-plan seed forbids re-orientation", seeded.includes("Do NOT explore the repo"));
   check("execute-plan records parent session", s.newSessions[0].parentSession === "parent-session.jsonl");
   check("execute-plan resets mode to boot default", s.statuses[s.statuses.length - 1].includes("manual"));
+  const state = JSON.parse(readFileSync(join(plansDirOf(PROJECT), ".state.json"), "utf8"));
+  check("execute-plan stamps dispatched", !!state["2026-07-17-newer.md"]?.dispatched);
 }
 
-// /execute-plan with a name, and with no matching plan
+// /execute-plan: cancel at the confirm aborts; named lookup; no-plans notify
 {
-  const s = editSession({ cwd: PROJECT });
+  const sCancel = editSession({ cwd: PROJECT, choose: "Cancel" });
+  await sCancel.executePlan("older");
+  check("execute-plan cancel aborts, no session", sCancel.newSessions.length === 0);
+
+  const s = editSession({ cwd: PROJECT, choose: "Execute" });
   await s.executePlan("older");
   check("execute-plan honors name argument", (s.sentMessages[0] ?? "").includes("old plan"));
+
   const s2 = editSession({ cwd: mkdtempSync(join(tmpdir(), "doug-noplans-")) });
   await s2.executePlan();
-  check("execute-plan with no plans notifies, no session", s2.newSessions.length === 0 && s2.notices.some((n) => n.includes("No plans")));
+  check("execute-plan with no plans notifies, no session", s2.newSessions.length === 0 && s2.notices.some((n) => n.includes("No un-dispatched plans")));
+}
+
+// /plans: deterministic listing with status, no session
+{
+  const proj = mkdtempSync(join(tmpdir(), "doug-plans-list-"));
+  const plansDir = plansDirOf(proj);
+  mkdirSync(plansDir, { recursive: true });
+  writeFileSync(join(plansDir, "2026-07-18-alpha.md"), "a");
+  writeFileSync(join(plansDir, "2026-07-19-beta.md"), "b");
+  writeFileSync(join(plansDir, ".state.json"), JSON.stringify({ "2026-07-18-alpha.md": { dispatched: "2026-07-18T00:00:00Z" } }));
+  const s = editSession({ cwd: proj });
+  await s.plans();
+  const out = s.notices.join("\n");
+  check("/plans lists both plans", out.includes("2026-07-18-alpha.md") && out.includes("2026-07-19-beta.md"));
+  check("/plans shows dispatched and not-dispatched", out.includes("ago") && out.includes("not dispatched"));
+  check("/plans opens no session", s.newSessions.length === 0);
+
+  const empty = editSession({ cwd: mkdtempSync(join(tmpdir(), "doug-plans-empty-")) });
+  await empty.plans();
+  check("/plans on empty project notifies", empty.notices.some((n) => n.includes("No plans")));
 }
 
 // --- Race modes: --push / --flat-out (env-driven) lift all gating here ---
