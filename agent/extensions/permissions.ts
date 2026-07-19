@@ -36,9 +36,11 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
+import { execSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { coveredByGuardrails, raceMode } from "./guardrails.ts";
 
 const DOUG_HOME = process.env.DOUG_HOME ?? join(homedir(), ".doug");
@@ -125,18 +127,19 @@ const MODE_STATUS: Record<EditMode, string> = {
   plan: "📋 plan mode",
 };
 
-const planInstructions = (user: string, depth: PlanDepth) => `
-You are in plan mode: ${user} and you are thinking a change through together before any code is written.
-- Discuss first. Surface ambiguity, propose alternatives; don't rush to save.
-- Ground in the actual code: read what's relevant (read-only commands are free) and cite exact file:line refs. Never plan changes to code you haven't opened.
-- Edits and mutative commands are blocked here — that's the mode working, not an obstacle.
-- Keep it proportionate: a small change deserves a short plan. Don't inflate a molehill into a mountain.
-- When ${user} agrees it's ready, call the save_plan tool — you never write the plan file yourself. ${user} approves the save; if they push back, fold in their notes and offer it again.
-- The plan runs later in a fresh session that sees ONLY the plan. Its grounding must be complete enough that the implementer can open the files named in the steps and edit them — without exploring the repo to figure out where things are.${
+// prompts/ lives in the repo; extensions are symlinked from it, so resolve the
+// repo root from DOUG_REPO_DIR (exported by bin/doug at runtime) and fall back to
+// this file's own location (correct under the test runner and as a backstop).
+const REPO_ROOT = process.env.DOUG_REPO_DIR ?? resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const PLAN_TEMPLATE = join(REPO_ROOT, "prompts", "plan-mode.template.md");
+
+const planInstructions = (user: string, depth: PlanDepth) => {
+  const depthNote =
     depth === "deep"
       ? `\n- ${user} marked this a DEEP plan: be comprehensive. Exhaustive grounding (every relevant file:line, pattern, decision, constraint), every step enumerated, concrete verification. Err toward more detail — this is architecture-grade.`
-      : ""
-  }`;
+      : "";
+  return readFileSync(PLAN_TEMPLATE, "utf8").trimEnd().replaceAll("{{user}}", user).replace("{{depth_note}}", depthNote);
+};
 
 // Plain JSON Schema — this is exactly what typebox's Type.Object(...) emits
 // (typebox 1.x schemas are standard JSON Schema, no symbols), so pi validates
@@ -203,7 +206,10 @@ function humanAge(ms: number): string {
 
 // Sibling .state.json tracks each plan's lifecycle so /execute-plan can default
 // to the newest UN-dispatched plan and never silently re-run a stale one.
-type PlanState = Record<string, { written?: string; dispatched?: string | null; session?: string | null }>;
+type PlanState = Record<
+  string,
+  { written?: string; dispatched?: string | null; session?: string | null; baseCommit?: string; branch?: string; dirty?: boolean }
+>;
 const statePath = (dir: string) => join(dir, ".state.json");
 function loadState(dir: string): PlanState {
   try {
@@ -216,15 +222,66 @@ function writeState(dir: string, s: PlanState) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(statePath(dir), JSON.stringify(s, null, 2) + "\n");
 }
-function stampWritten(dir: string, file: string) {
+function stampWritten(dir: string, file: string, git: { baseCommit?: string; branch?: string; dirty?: boolean } = {}) {
   const s = loadState(dir);
-  s[file] = { ...s[file], written: new Date().toISOString(), dispatched: s[file]?.dispatched ?? null };
+  s[file] = { ...s[file], written: new Date().toISOString(), dispatched: s[file]?.dispatched ?? null, ...git };
   writeState(dir, s);
 }
 function stampDispatched(dir: string, file: string, session: string | null) {
   const s = loadState(dir);
   s[file] = { ...s[file], dispatched: new Date().toISOString(), session };
   writeState(dir, s);
+}
+
+/** Git context captured when a plan is saved, so /execute-plan can measure how far
+ * the repo has drifted from the plan's truth without the executor doing archaeology. */
+function gitContext(cwd: string): { baseCommit?: string; branch?: string; dirty?: boolean } {
+  const run = (a: string) => execSync(`git ${a}`, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  try {
+    return { baseCommit: run("rev-parse HEAD"), branch: run("rev-parse --abbrev-ref HEAD"), dirty: run("status --porcelain").length > 0 };
+  } catch {
+    return {};
+  }
+}
+
+/** A caveat prepended to the dispatch when the repo has moved since the plan was
+ * written — naming only the plan-referenced files that changed, so the executor
+ * knows how far its grounding can be trusted. Falls back to wall-clock age when
+ * there's no git metadata to compare (older plans, or a non-git project). */
+function driftNote(saved: PlanState[string] | undefined, cwd: string, planText: string, mtimeMs: number): string {
+  const now = gitContext(cwd);
+  if (!saved?.baseCommit || !now.baseCommit) {
+    return Date.now() - mtimeMs > 24 * 3_600_000
+      ? `\n\n⚠️ This plan is ${humanAge(mtimeMs)} old and predates drift tracking. Spot-check that its file:line references still match the current files before editing; if anything moved, stop and flag it.`
+      : "";
+  }
+  if (now.baseCommit === saved.baseCommit) {
+    return saved.dirty
+      ? `\n\n⚠️ This plan was written against uncommitted changes on \`${saved.branch}\`; the working tree may differ from what its grounding assumes. Verify before editing.`
+      : "";
+  }
+  const run = (a: string) => {
+    try {
+      return execSync(`git ${a}`, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+      return "";
+    }
+  };
+  let ancestor = false;
+  try {
+    execSync(`git merge-base --is-ancestor ${saved.baseCommit} HEAD`, { cwd, stdio: "ignore" });
+    ancestor = true;
+  } catch {}
+  const from = ancestor ? saved.baseCommit : run(`merge-base ${saved.baseCommit} HEAD`);
+  const changed = from ? run(`diff --name-only ${from} HEAD`).split("\n").filter(Boolean) : [];
+  const touched = changed.filter((f) => planText.includes(f) || planText.includes(basename(f)));
+  const where = ancestor
+    ? "The repo has advanced since this plan was written"
+    : `This plan was written on \`${saved.branch}\`; you're now on \`${now.branch}\`, which has diverged`;
+  if (!touched.length) {
+    return `\n\n${where}, but none of the files it references changed — the grounding should still hold. Spot-check line numbers as you go.`;
+  }
+  return `\n\n⚠️ ${where}. Files it references that have since changed: ${touched.join(", ")}. Re-read those and confirm the grounding still matches before editing; if line refs moved, adjust or stop and flag.`;
 }
 
 /** Resolve which plan to execute: a named match spans all plans; otherwise the
@@ -243,7 +300,7 @@ export function pickPlan(plansDir: string, name: string): string | undefined {
 }
 
 const EXEC_PREAMBLE =
-  "Execute the plan below. It is self-contained and is your orientation for this repository — read only the files named in the Steps that you are about to edit. Do NOT explore the repo to get your bearings or rebuild context; everything you need is in the plan. If something you genuinely need is missing from it, stop and say so rather than guessing. Follow the Steps in order.";
+  "Execute the plan below. It is self-contained and is your orientation for this repository — read only the files named in the Steps that you are about to edit. Do NOT explore the repo to get your bearings or rebuild context; everything you need is in the plan. If a Step needs something the plan doesn't give you — how to resolve a path, which of several patterns to follow, a decision it never made — STOP and ask after at most one confirming read. Do not go hunting through the repo to fill the gap: exploring to reconstruct missing grounding is the exact failure this mode exists to prevent. Follow the Steps in order.";
 
 const CONFIG_PATH = join(DOUG_HOME, "config.json");
 
@@ -334,12 +391,13 @@ export default function (pi: ExtensionAPI) {
         }
       }
       const content = readFileSync(plan, "utf8");
+      const drift = driftNote(st, ctx.cwd ?? process.cwd(), content, statSync(plan).mtimeMs);
       stampDispatched(dir, file, ctx.sessionManager.getSessionFile());
       setMode(bootEditMode(), ctx);
       await ctx.newSession({
         parentSession: ctx.sessionManager.getSessionFile(),
         withSession: async (fresh: any) => {
-          await fresh.sendUserMessage(`${EXEC_PREAMBLE}\n\n(from ${plan})\n\n${content}`);
+          await fresh.sendUserMessage(`${EXEC_PREAMBLE}${drift}\n\n(from ${plan})\n\n${content}`);
         },
       });
     },
@@ -406,7 +464,7 @@ export default function (pi: ExtensionAPI) {
       const file = `${today()}-${slugify(params.slug || params.goal)}.md`;
       const path = join(dir, file);
       writeFileSync(path, renderPlan(params));
-      stampWritten(dir, file);
+      stampWritten(dir, file, gitContext(ctx.cwd ?? process.cwd()));
       ctx.ui?.notify?.(`Plan saved: ${path}`, "info");
       return { content: [{ type: "text", text: `Plan saved to ${path}. Tell ${USER} to run /execute-plan when ready.` }] };
     },

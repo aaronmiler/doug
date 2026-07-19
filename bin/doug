@@ -16,6 +16,9 @@ export DOUG_CODING_AGENT_DIR="$DOUG_HOME/agent"
 # Resolve this repo (bin/doug may itself be a symlink on PATH)
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
+# Extensions are symlinked from the repo but read repo-relative prompt templates
+# at runtime; export the repo root so they can resolve prompts/ without guessing.
+export DOUG_REPO_DIR="$REPO_DIR"
 
 PI_PKG_DIR="$REPO_DIR/node_modules/@earendil-works/pi-coding-agent"
 if [[ ! -f "$PI_PKG_DIR/package.json" ]]; then
@@ -138,12 +141,20 @@ EOF
 # doug-owned files live flat in DOUG_HOME; ~/.doug/agent/ is pi's machinery.
 PROFILE="$DOUG_HOME/profile.json"
 mkdir -p "$DOUG_HOME/agent" "$DOUG_HOME/skills"
+# Default to doug's own theme on a fresh setup. pi would otherwise auto-pick
+# dark/light by background detection, which misreads some schemes (e.g. Solarized
+# reads as light). Only seed when there are no settings yet — never clobber a
+# theme the user has since chosen via /settings.
+SETTINGS="$DOUG_HOME/agent/settings.json"
+[[ -f "$SETTINGS" ]] || printf '{\n  "theme": "doug-light/doug-dark"\n}\n' > "$SETTINGS"
 # One-time migration from the old nested location.
 if [[ ! -f "$PROFILE" && -f "$DOUG_HOME/agent/profile.json" ]]; then
   mv "$DOUG_HOME/agent/profile.json" "$PROFILE"
 fi
 if [[ ! -f "$PROFILE" && -t 0 && -t 1 ]]; then
-  G=$'\033[32m'; D=$'\033[2m'; B=$'\033[1m'; R=$'\033[0m'
+  # doug's Cascadia fir green (truecolor #1FA05C) so it reads green regardless of
+  # the terminal's ANSI palette — plain \033[32m renders olive under Solarized.
+  G=$'\033[38;2;31;160;92m'; D=$'\033[2m'; B=$'\033[1m'; R=$'\033[0m'
   printf '%s\n' \
     "" \
     "${G}     █${R}        ${D}┌────────────────────────────────────────────┐${R}" \
@@ -166,7 +177,7 @@ fi
 # doug's identity: render the repo template + profile into the live system
 # prompt, appending ~/.doug/DOUG.md (the user's global context, CLAUDE.md-style)
 # if present. Extensions stay symlinked from the repo.
-"$NODE_BIN" - "$REPO_DIR/agent/SYSTEM.template.md" "$PROFILE" "$DOUG_HOME/agent/SYSTEM.md" "$DOUG_HOME/DOUG.md" <<'EOF'
+"$NODE_BIN" - "$REPO_DIR/prompts/system.template.md" "$PROFILE" "$DOUG_HOME/agent/SYSTEM.md" "$DOUG_HOME/DOUG.md" <<'EOF'
 const fs = require("fs");
 const [tplPath, profilePath, outPath, userPath] = process.argv.slice(2);
 let profile = {};
@@ -184,6 +195,7 @@ fs.rmSync(outPath, { force: true }); // may be a symlink from older doug version
 fs.writeFileSync(outPath, out);
 EOF
 ln -sfn "$REPO_DIR/agent/extensions" "$DOUG_HOME/agent/extensions"
+ln -sfn "$REPO_DIR/agent/themes" "$DOUG_HOME/agent/themes"
 
 # doug resolves skills from ~/.doug/skills by default. pi auto-scans its own
 # agent dir (~/.doug/agent/skills), but doug keeps skills in the flat top-level

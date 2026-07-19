@@ -1,0 +1,73 @@
+{
+	"$schema": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/src/modes/interactive/theme/theme-schema.json",
+	"name": "doug-light",
+	"vars": {
+		"dougGreen": "#046A38",
+		"dougBlue": "#1F6FD4"
+	},
+	"colors": {
+		"accent": "dougGreen",
+		"border": 250,
+		"borderAccent": "dougBlue",
+		"borderMuted": 252,
+		"success": 2,
+		"error": 1,
+		"warning": 3,
+		"muted": 243,
+		"dim": 245,
+		"text": "",
+		"thinkingText": 244,
+
+		"selectedBg": 254,
+		"userMessageBg": 254,
+		"userMessageText": "",
+		"customMessageBg": 254,
+		"customMessageText": "",
+		"customMessageLabel": "dougGreen",
+		"toolPendingBg": 254,
+		"toolSuccessBg": 194,
+		"toolErrorBg": 224,
+		"toolTitle": "",
+		"toolOutput": "",
+
+		"mdHeading": 3,
+		"mdLink": 4,
+		"mdLinkUrl": 245,
+		"mdCode": 6,
+		"mdCodeBlock": "",
+		"mdCodeBlockBorder": 245,
+		"mdQuote": 245,
+		"mdQuoteBorder": 245,
+		"mdHr": 245,
+		"mdListBullet": "dougGreen",
+
+		"toolDiffAdded": 2,
+		"toolDiffRemoved": 1,
+		"toolDiffContext": 245,
+
+		"syntaxComment": 245,
+		"syntaxKeyword": 2,
+		"syntaxFunction": 4,
+		"syntaxVariable": 4,
+		"syntaxString": 6,
+		"syntaxNumber": 5,
+		"syntaxType": 3,
+		"syntaxOperator": "",
+		"syntaxPunctuation": "",
+
+		"thinkingOff": 246,
+		"thinkingMinimal": 243,
+		"thinkingLow": 4,
+		"thinkingMedium": 6,
+		"thinkingHigh": 5,
+		"thinkingXhigh": 5,
+		"thinkingMax": 1,
+
+		"bashMode": 2
+	},
+	"export": {
+		"pageBg": "#fdf6e3",
+		"cardBg": "#eee8d5",
+		"infoBg": "#eee8d5"
+	}
+}
