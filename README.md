@@ -15,7 +15,7 @@ An opinionated personal coding assistant. doug is a branded distribution of
 [pi](https://github.com/earendil-works/pi-mono), built on pi's official
 rebranding mechanism — no fork, no global installs: pi is vendored and
 pinned in-repo, modified only by one small cosmetic patch
-(see [Branding patches](#branding-patches)).
+(see [Branding patches](MAINTAINING.md#branding-patches)).
 He learns who you are on first run, keeps his identity in a version-controlled
 template, and enforces a clear line between his tasks and yours.
 
@@ -116,23 +116,6 @@ boot default are detailed under
 [What shapes doug's behavior](#what-shapes-dougs-behavior); race modes override
 them all.
 
-## Branding patches
-
-pi's TUI header is hardcoded (π wordmark, "Pi can explain…" startup line), so
-`patches/` carries a small [patch-package](https://github.com/ds300/patch-package)
-patch applied by `postinstall`: the doug-fir boot mark with wordmark and
-keybinding hints inlined beside it (stacking on narrow terminals), and
-doug-flavored startup text. That's the only place pi's code is modified.
-
-## Upgrading pi
-
-Bump the version in `package.json`, then `npm install`. The shim is rebuilt on
-every launch, so no other step exists. (`doug update` updates doug itself, not
-pi — pi upgrades go through the lockfile.) If the branding patch
-no longer applies after a bump, patch-package will say so loudly — re-make the
-two-string patch against the new version and `npx patch-package
-@earendil-works/pi-coding-agent`.
-
 ## What shapes doug's behavior
 
 Filesystem rule: **doug's own files live flat in `~/.doug/`; `~/.doug/agent/`
@@ -189,29 +172,7 @@ never fires. Additional paths auto-discover with no config: project skills
 under `.doug/skills/` (on project trust) and vendor-neutral `~/.agents/skills/`.
 `--skill` is additive, so none of these are shadowed by the default.
 
-## Node resolution
+## Maintaining doug
 
-pi declares its floor in `engines` (currently >=22.19), and the launcher reads
-it from there — the requirement is a version, not a tool. Resolution order:
-
-1. `DOUG_NODE` — explicit override; fails loudly if it doesn't satisfy.
-2. PATH's node, when it satisfies — whatever put it there (brew, nvm, a
-   project's pin) is fine.
-3. The newest install found under common version managers (mise, nvm, fnm,
-   asdf, volta), so a project whose `.node-version` pins an old node never
-   breaks doug.
-
-If nothing satisfies, doug says what it needs and every way to get it —
-no manager is ever required.
-
-## Layout
-
-```
-bin/doug                    launcher (shim, profile onboarding, template render)
-agent/SYSTEM.template.md    doug's identity template (rendered with profile.json)
-agent/extensions/           guardrails + future doug extensions (symlinked)
-patches/                    cosmetic branding patch for the vendored pi
-test/guardrails.test.ts     guardrails behavioral suite (npm test)
-install.sh                  vendors pi + puts `doug` on PATH
-bootstrap.sh                curl-able: clone (or pull) the repo, then install.sh
-```
+Building doug, the branding patch, upgrading the vendored pi, node resolution,
+and repo layout live in [MAINTAINING.md](MAINTAINING.md).

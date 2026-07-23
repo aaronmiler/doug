@@ -20,6 +20,13 @@ REPO_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
 # at runtime; export the repo root so they can resolve prompts/ without guessing.
 export DOUG_REPO_DIR="$REPO_DIR"
 
+# Silence pi's "a newer version is available" startup nag. The vendored copy is
+# lockfile-pinned and doug's `update` subcommand owns upgrades, so the check is
+# pure noise (and a network round-trip) on every launch. scripts/check-pi-upgrade.sh
+# is the real staleness signal. Only default when unset, so `PI_SKIP_VERSION_CHECK=`
+# (empty) still re-enables the check as an escape hatch.
+export PI_SKIP_VERSION_CHECK="${PI_SKIP_VERSION_CHECK-1}"
+
 PI_PKG_DIR="$REPO_DIR/node_modules/@earendil-works/pi-coding-agent"
 if [[ ! -f "$PI_PKG_DIR/package.json" ]]; then
   echo "doug: vendored pi missing. Run: cd $REPO_DIR && npm install" >&2

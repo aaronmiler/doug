@@ -7,7 +7,7 @@
     "test": "for f in test/*.test.ts; do node --experimental-strip-types --no-warnings \"$f\" || exit 1; done"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.10"
+    "@earendil-works/pi-coding-agent": "0.81.1"
   },
   "devDependencies": {
     "patch-package": "^8.0.1"
