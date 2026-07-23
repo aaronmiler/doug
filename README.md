@@ -33,7 +33,7 @@ template, and enforces a clear line between his tasks and yours.
   `DOUG_CODING_AGENT_DIR`, since `configDir` alone would send it to `~/.agents`),
   while per-project resources use the standard `.agents/` dir (from `configDir`) —
   so doug drops into any repo without leaving a branded config folder behind.
-- `agent/SYSTEM.template.md` is doug's identity/system prompt, with
+- `prompts/system.template.md` is doug's identity/system prompt, with
   `{{name}}`/`{{about}}` placeholders. On every launch the launcher renders it
   with `~/.doug/profile.json` into `~/.doug/agent/SYSTEM.md`, where pi
   picks it up as a full system-prompt replacement. Missing profile on an
@@ -124,7 +124,7 @@ SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 
 | File | Effect |
 |---|---|
-| repo `agent/SYSTEM.template.md` | doug's identity — rendered with the profile into `~/.doug/agent/SYSTEM.md` on every launch |
+| repo `prompts/system.template.md` | doug's identity — rendered with the profile into `~/.doug/agent/SYSTEM.md` on every launch |
 | `~/.doug/profile.json` | Who doug works for: `name`, `role`, `notes`. Created by first-run onboarding; edit anytime (auto-migrated from the old `agent/` location) |
 | `~/.doug/DOUG.md` | The user's global context, CLAUDE.md-style — free markdown appended to the system prompt at render time. Keep it short; anything task-conditional belongs in a skill. (Project-level names are hardcoded: `AGENTS.md`, else `CLAUDE.md` — a project `DOUG.md` won't load) |
 | `~/.doug/skills/` | Lazy-loaded knowledge (stack conventions, homelab how-tos): one description line always in context, full body read on demand. Loaded by default — the launcher points pi here via `--skill`, so no settings entry is needed |

@@ -9,7 +9,8 @@ architecture these notes assume.
 
 ```
 bin/doug                    launcher (shim, profile onboarding, template render)
-agent/SYSTEM.template.md    doug's identity template (rendered with profile.json)
+prompts/system.template.md  doug's identity template (rendered with profile.json)
+prompts/plan-mode.template.md  plan-mode prompt (loaded by the permissions extension)
 agent/extensions/           guardrails + future doug extensions (symlinked)
 patches/                    cosmetic branding patch for the vendored pi
 scripts/bump-pi.sh          bump pi: pin + patch rename + reinstall, in one step

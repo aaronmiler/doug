@@ -70,17 +70,51 @@ function normalize(command: string): string {
   return command.trim().replace(/\s+/g, " ");
 }
 
+/** Collapse quoted spans to a neutral placeholder so metacharacters *inside*
+ * quotes (a regex pattern like `rg 'a|b'` or `rg 'foo>bar'`) aren't misread as
+ * pipeline operators or redirects. Single-pass, quote-aware. Returns null when a
+ * real command substitution ($( or a backtick outside single quotes) is present —
+ * that can run anything, so the command is never read-only. */
+function dequote(command: string): string | null {
+  let out = "";
+  for (let i = 0; i < command.length; ) {
+    const c = command[i];
+    if (c === "\\") {
+      out += "X"; // escaped char is literal; placeholder keeps token boundaries
+      i += 2;
+    } else if (c === "'") {
+      const end = command.indexOf("'", i + 1);
+      out += "X";
+      i = end === -1 ? command.length : end + 1;
+    } else if (c === '"') {
+      let j = i + 1;
+      for (; j < command.length && command[j] !== '"'; j++) {
+        if (command[j] === "\\") j++;
+        else if (command[j] === "`" || (command[j] === "$" && command[j + 1] === "(")) return null;
+      }
+      out += "X";
+      i = j < command.length ? j + 1 : command.length;
+    } else if (c === "`" || (c === "$" && command[i + 1] === "(")) {
+      return null;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
 /** Conservative read-only check: every pipeline stage is a safe binary, no
  * file redirects, no command substitution. */
 function isReadOnly(command: string): boolean {
+  const view = dequote(command);
+  if (view === null) return false; // command substitution — can hide anything
   // Redirects to anything but /dev/null or an fd dup mean a file write.
-  for (const m of command.matchAll(/(?:\d+|&)?>{1,2}\s*(\S+)/g)) {
+  for (const m of view.matchAll(/(?:\d+|&)?>{1,2}\s*(\S+)/g)) {
     const target = m[1];
     if (target !== "/dev/null" && !target.startsWith("&")) return false;
   }
-  // Command substitution can hide anything.
-  if (command.includes("$(") || command.includes("`")) return false;
-  for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+  for (const segment of view.split(/&&|\|\||[;|\n]/)) {
     const tokens = segment.trim().split(/\s+/).filter(Boolean);
     let i = 0;
     while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;

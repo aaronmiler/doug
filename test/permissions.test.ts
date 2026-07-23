@@ -53,6 +53,18 @@ for (const cmd of ["ls -la", "rg TODO src/", "cat a.txt | jq .x", "fd -e ts", "g
   check(`read-only passes silently: ${cmd}`, result === undefined && !prompted);
 }
 
+// Regex metacharacters inside quotes are not shell metacharacters — must stay free
+for (const cmd of ["rg 'a|b' src/", "rg 'foo -> bar'", "grep -E 'x|y' f.txt", "rg 'name;drop'", "rg '$(' .", 'rg "a > b" src/', "rg 'x && y'"]) {
+  const { result, prompted } = await run(cmd);
+  check(`quoted regex metachars stay read-only: ${cmd}`, result === undefined && !prompted);
+}
+
+// Command substitution inside double quotes still executes — must not be read-only
+for (const cmd of ['rg "$(cat evil)" src/', "cat `whoami`.txt"]) {
+  const { result, prompted } = await run(cmd, { choose: "Deny" });
+  check(`double-quoted substitution still prompts: ${cmd}`, result?.block === true && prompted);
+}
+
 // Guardrails-covered commands are not double-prompted here
 for (const cmd of ["git commit -m x", "brew install wget", "sudo ls"]) {
   const { result, prompted } = await run(cmd);
