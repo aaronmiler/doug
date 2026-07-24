@@ -32,6 +32,7 @@ Shell tool preferences — these are installed; always reach for them first:
 - Prefer these even in one-liners; only fall back to the classic tool if the modern one is missing on the machine
 - `rg`/`fd` exit code 1 means "no match" — a clean, valid result, not a failure. Don't rewrite the command to "fix" it; accept the absence or deliberately broaden the pattern. "No files were searched" likewise means a filter matched nothing here (e.g. that file type isn't in this repo), not a syntax error
 - `rg` is recursive and honors `.gitignore` by default; filter paths with `-g '<glob>'` and languages with full type names (`-t ruby`, not `-t rb`; check `rg --type-list` if unsure). Regex is Rust-flavored (`|` alternation and `\d` work unescaped; no need for grep's `-E`)
+- Running a one-off command inside a container or over a remote shell: don't request a TTY. `docker exec -it`/`-t` (and `ssh -t`, `kubectl exec -it`) fail with `the input device is not a TTY` because doug has no terminal attached. Use `-i` alone, or drop the flags entirely; only add `-t` back for a genuinely interactive session {{name}} is driving
 
 Your own documentation (read only when {{name}} asks about doug itself — features, settings, extensions, skills, prompt templates, themes, keybindings, TUI, or SDK):
 - Main documentation: ~/.doug/shim/README.md

@@ -98,8 +98,7 @@ Neither is ever a config default — the flag is the decision, per invocation.
 ## Commands
 
 doug adds these slash commands on top of pi's built-ins (`/hotkeys` lists them
-all). Every one is handled in-process by the permissions extension — no model
-loop:
+all). Every one is handled in-process by doug's extensions — no model loop:
 
 | Command | What it does |
 |---|---|
@@ -108,6 +107,7 @@ loop:
 | `/plan` | Enter plan mode: discuss and ground a change while all code edits/writes are blocked. `/plan deep` asks for a comprehensive plan; either is switchable mid-plan (footer 📋 / 📋·deep). |
 | `/execute-plan [name]` | Run a saved plan in a fresh session — newest un-dispatched by default, or a named match. Confirms (name + age + status) before starting. |
 | `/plans` | List this project's saved plans and their written/dispatched status. Never executes anything. |
+| `/clear` | Start a fresh session — an alias for pi's built-in `/new`, for muscle memory from other tools. |
 
 Plans are written by the model calling the `save_plan` tool (plan mode only) —
 its typed schema requires goal/grounding/steps, and doug asks you to approve
@@ -130,6 +130,7 @@ SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 | `~/.doug/skills/` | Lazy-loaded knowledge (stack conventions, homelab how-tos): one description line always in context, full body read on demand. Loaded by default — the launcher points pi here via `--skill`, so no settings entry is needed |
 | repo `agent/extensions/guardrails.ts` | Bash guardrails: blocks mutative git, secret reads, sudo, catastrophic `rm`; installs/system changes require a live confirm dialog (symlinked to `~/.doug/agent/extensions/`, hot-reload with `/reload`) |
 | repo `agent/extensions/flipflop.ts` | Flip-flop detector: a 3rd edit to the same file with the same command re-run between edits (spray-and-pray debugging) triggers a live check-in; blocked outright when running unattended |
+| repo `agent/extensions/aliases.ts` | Command aliases for muscle memory from other tools: `/clear` starts a fresh session (pi's built-in `/new`) |
 | repo `agent/extensions/permissions.ts` | The policy behind the edit modes and plan [commands](#commands). Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; the footer shows the current mode. Plan mode is read-only for code — the model persists a plan only through the `save_plan` tool (typed schema requires goal/grounding/steps; you approve before it writes), and `/execute-plan` runs it in a fresh session told to trust the plan as its orientation rather than re-exploring the repo |
 | `.agents/SYSTEM.md` (in a project) | Replaces the system prompt for that project |
 | `.agents/APPEND_SYSTEM.md` (in a project) | Appends to the system prompt instead of replacing |

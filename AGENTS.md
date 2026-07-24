@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What doug is
 
-doug is a **branded distribution of [pi](https://github.com/earendil-works/pi-mono)**, not a fork. pi is vendored (pinned in `package.json` + lockfile, installed into this repo's `node_modules`) and modified only by one cosmetic branding patch. doug's own behavior is layered on top via pi's official rebranding mechanism (`piConfig`), a launcher script, and three pi extensions. There is no application framework here to learn — the value lives in the launcher, the extensions, and the identity template.
+doug is a **branded distribution of [pi](https://github.com/earendil-works/pi-mono)**, not a fork. pi is vendored (pinned in `package.json` + lockfile, installed into this repo's `node_modules`) and modified only by one cosmetic branding patch. doug's own behavior is layered on top via pi's official rebranding mechanism (`piConfig`), a launcher script, and four pi extensions. There is no application framework here to learn — the value lives in the launcher, the extensions, and the identity template.
 
 Read `README.md` first — it is the architecture source of truth (how vendoring works, what every config file does, the command list). `MAINTAINING.md` covers the build, the branding patch, and pi upgrades.
 
@@ -30,6 +30,7 @@ Three pieces do all the work:
    - `permissions.ts` — the biggest piece. Backs the edit modes and plan commands (`/manual` `/auto` `/plan` `/execute-plan` `/plans`), the bash Allow-once/Always/Deny prompts, and the `save_plan` tool. Persists to `~/.doug/permissions.json` and `~/.doug/config.json`.
    - `guardrails.ts` — hard bash blocks: mutative git, secret reads, sudo, catastrophic `rm`; installs/system changes require a live confirm.
    - `flipflop.ts` — detects spray-and-pray debugging (a 3rd edit to the same file with the same command re-run between edits) and forces a human check-in.
+   - `aliases.ts` — maps familiar command names from other tools onto doug's own. Currently just `/clear` → a fresh session (the built-in `/new`).
 
 3. **`prompts/*.template.md` (identity + plan prompts)** — `system.template.md` is doug's system prompt with `{{name}}`/`{{about}}` placeholders, rendered against `~/.doug/profile.json` on every launch. `plan-mode.template.md` is loaded by `permissions.ts` with `{{user}}`/`{{depth_note}}` substitution.
 

@@ -54,7 +54,7 @@ for (const cmd of ["ls -la", "rg TODO src/", "cat a.txt | jq .x", "fd -e ts", "g
 }
 
 // Regex metacharacters inside quotes are not shell metacharacters — must stay free
-for (const cmd of ["rg 'a|b' src/", "rg 'foo -> bar'", "grep -E 'x|y' f.txt", "rg 'name;drop'", "rg '$(' .", 'rg "a > b" src/', "rg 'x && y'"]) {
+for (const cmd of ["rg 'a|b' src/", "rg 'foo -> bar'", "grep -E 'x|y' f.txt", "rg 'name;drop'", "rg '$(' .", 'rg "a > b" src/', "rg 'x && y'", 'rg "arrival|check_in|checkin" app/models/ota/reservation.rb', 'fd . app/models -t f -x basename | sort | rg -i "pms|post|sync"']) {
   const { result, prompted } = await run(cmd);
   check(`quoted regex metachars stay read-only: ${cmd}`, result === undefined && !prompted);
 }
