@@ -107,6 +107,7 @@ all). Every one is handled in-process by doug's extensions — no model loop:
 | `/plan` | Enter plan mode: discuss and ground a change while all code edits/writes are blocked. `/plan deep` asks for a comprehensive plan; either is switchable mid-plan (footer 📋 / 📋·deep). |
 | `/execute-plan [name]` | Run a saved plan in a fresh session — newest un-dispatched by default, or a named match. Confirms (name + age + status) before starting. |
 | `/plans` | List this project's saved plans and their written/dispatched status. Never executes anything. |
+| `/rewind [n]` | Discard the last turn from context — moves the session back to before your last message, so a path doug shouldn't have taken is gone rather than argued out of. `/rewind 2` goes back two turns. Files are **not** reverted; the confirm names what stays on disk. |
 | `/clear` | Start a fresh session — an alias for pi's built-in `/new`, for muscle memory from other tools. |
 
 Plans are written by the model calling the `save_plan` tool (plan mode only) —
@@ -116,6 +117,17 @@ boot default are detailed under
 [What shapes doug's behavior](#what-shapes-dougs-behavior); race modes override
 them all.
 
+`/rewind` deliberately rewinds **context only, never the working tree.** The
+expensive part of a wrong turn isn't the diff — it's that the thread now carries
+a direction doug will keep leaning on, so every correction fights it. Moving the
+session leaf back deletes that gravity outright; the branch is still in the tree
+(`/tree`) if you want it. Reverting files is left to you, because a rewind that
+silently undid edits would be worse than one that doesn't: doug's context and
+your repo would disagree with nobody watching. So the confirm names every file
+the discarded turns touched and stops there — you have git and, usually, a
+watcher already running. Choose "Rewind + leave a note" to keep a one-line
+summary of the abandoned path so doug doesn't propose it again.
+
 ## What shapes doug's behavior
 
 Filesystem rule: **doug's own files live flat in `~/.doug/`; `~/.doug/agent/`
@@ -124,17 +136,18 @@ SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 
 | File | Effect |
 |---|---|
-| repo `prompts/system.template.md` | doug's identity — rendered with the profile into `~/.doug/agent/SYSTEM.md` on every launch |
+| repo `prompts/system.template.md` | doug's identity — rendered with the profile into `~/.doug/agent/SYSTEM.md` on every launch. Includes the verification rules: proof is normally the narrowest command that exercises the change, but where a **test watcher is declared** (see below) doug states a falsifiable expectation instead of running anything |
 | `~/.doug/profile.json` | Who doug works for: `name`, `role`, `notes`. Created by first-run onboarding; edit anytime (auto-migrated from the old `agent/` location) |
 | `~/.doug/DOUG.md` | The user's global context, CLAUDE.md-style — free markdown appended to the system prompt at render time. Keep it short; anything task-conditional belongs in a skill. (Project-level names are hardcoded: `AGENTS.md`, else `CLAUDE.md` — a project `DOUG.md` won't load) |
 | `~/.doug/skills/` | Lazy-loaded knowledge (stack conventions, homelab how-tos): one description line always in context, full body read on demand. Loaded by default — the launcher points pi here via `--skill`, so no settings entry is needed |
 | repo `agent/extensions/guardrails.ts` | Bash guardrails: blocks mutative git, secret reads, sudo, catastrophic `rm`; installs/system changes require a live confirm dialog (symlinked to `~/.doug/agent/extensions/`, hot-reload with `/reload`) |
 | repo `agent/extensions/flipflop.ts` | Flip-flop detector: a 3rd edit to the same file with the same command re-run between edits (spray-and-pray debugging) triggers a live check-in; blocked outright when running unattended |
 | repo `agent/extensions/aliases.ts` | Command aliases for muscle memory from other tools: `/clear` starts a fresh session (pi's built-in `/new`) |
+| repo `agent/extensions/rewind.ts` | Backs `/rewind`: walks the session branch to the Nth-last user message, warns which files the discarded turns edited, then `navigateTree`s the leaf back there (optionally leaving a one-line summary of the abandoned direction, labelled `rewound`). Keeps no state of its own — the file list is derived from the session's own tool calls |
 | repo `agent/extensions/permissions.ts` | The policy behind the edit modes and plan [commands](#commands). Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; the footer shows the current mode. Plan mode is read-only for code — the model persists a plan only through the `save_plan` tool (typed schema requires goal/grounding/steps; you approve before it writes), and `/execute-plan` runs it in a fresh session told to trust the plan as its orientation rather than re-exploring the repo |
 | `.agents/SYSTEM.md` (in a project) | Replaces the system prompt for that project |
 | `.agents/APPEND_SYSTEM.md` (in a project) | Appends to the system prompt instead of replacing |
-| `AGENTS.md` / `CLAUDE.md` (in a project) | Project context, loaded from cwd and ancestors; `AGENTS.md` shadows `CLAUDE.md` in the same directory |
+| `AGENTS.md` / `CLAUDE.md` (in a project) | Project context, loaded from cwd and ancestors; `AGENTS.md` shadows `CLAUDE.md` in the same directory. Declaring a **test watcher** here (e.g. "Tests: guard runs continuously — don't run rspec yourself") flips doug's verification from executing tests to naming the expected result, which is what you want when you're already watching the output |
 | `~/.doug/config.json` | doug's own config (pi never reads it): `editMode: "manual" \| "auto"` sets the boot default for edit approvals (manual if absent) |
 | `~/.doug/agent/settings.json` | Model, theme, keybindings, enabled extensions (`/settings` in the TUI) |
 | `~/.doug/agent/{tools,prompts,themes}/` | Global custom tools, prompt templates, themes |
