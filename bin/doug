@@ -181,6 +181,32 @@ if [[ ! -f "$PROFILE" && -t 0 && -t 1 ]]; then
   printf '\n  Nice to meet you, %s. Profile saved to %s — edit anytime.\n\n' "${DOUG_NAME:-friend}" "$PROFILE"
 fi
 
+# Ground truth about this machine, resolved fresh each launch so the prompt
+# states facts instead of assumptions.
+#
+# DOUG_SHELL mirrors pi's own resolution order (dist/utils/shell.js): the bash
+# tool runs /bin/bash -c, falling back to bash on PATH, then sh. It never uses
+# $SHELL — so telling doug "zsh" because that's the login shell would invite
+# zsh-only syntax that dies in the tool.
+DOUG_PLATFORM="$(uname -s 2>/dev/null || echo unknown)"
+DOUG_OS="$DOUG_PLATFORM $(uname -r 2>/dev/null || echo '?')"
+if [ -x /bin/bash ]; then
+  DOUG_SHELL="/bin/bash"
+elif command -v bash >/dev/null 2>&1; then
+  DOUG_SHELL="$(command -v bash)"
+else
+  DOUG_SHELL="sh"
+fi
+DOUG_SHELL_VER="$("$DOUG_SHELL" -c 'echo "${BASH_VERSION:-unknown}"' 2>/dev/null || echo unknown)"
+# Modern CLI tools the prompt tells doug to prefer — probed, not asserted, since
+# the template travels to machines that may not have them.
+DOUG_TOOLS=""
+for t in rg fd sd jq; do
+  command -v "$t" >/dev/null 2>&1 && DOUG_TOOLS="${DOUG_TOOLS:+$DOUG_TOOLS, }$t"
+done
+DOUG_TOOLS="${DOUG_TOOLS:-none of rg/fd/sd/jq}"
+export DOUG_PLATFORM DOUG_OS DOUG_SHELL DOUG_SHELL_VER DOUG_TOOLS
+
 # doug's identity: render the repo template + profile into the live system
 # prompt, appending ~/.doug/DOUG.md (the user's global context, CLAUDE.md-style)
 # if present. Extensions stay symlinked from the repo.
@@ -194,7 +220,23 @@ const aboutLines = [];
 if (profile.role?.trim()) aboutLines.push(`- ${profile.role.trim()}`);
 if (profile.notes?.trim()) aboutLines.push(`- ${profile.notes.trim()}`);
 const about = aboutLines.length ? `\nAbout ${name}:\n${aboutLines.join("\n")}\n` : "";
-let out = fs.readFileSync(tplPath, "utf8").replaceAll("{{name}}", name).replaceAll("{{about}}", about);
+// en-CA renders ISO yyyy-mm-dd in local time; toISOString would be UTC and can
+// name tomorrow during {{name}}'s evening. Date only, no clock: SYSTEM.md is
+// rewritten every launch, and a timestamp would churn the prompt all day.
+const date = new Date().toLocaleDateString("en-CA");
+const shell = process.env.DOUG_SHELL || "sh";
+const shellVer = process.env.DOUG_SHELL_VER || "unknown";
+// macOS ships bash 3.2 (2007) at /bin/bash — no associative arrays, no ${v^^},
+// no mapfile. Worth naming, since the habits come from a modern login shell.
+const legacyBash = /^3\./.test(shellVer) ? " This is bash 3.x, so no associative arrays, `${v^^}`, `mapfile`, or other bash 4+ syntax." : "";
+let out = fs.readFileSync(tplPath, "utf8")
+  .replaceAll("{{name}}", name)
+  .replaceAll("{{about}}", about)
+  .replaceAll("{{date}}", date)
+  .replaceAll("{{os}}", process.env.DOUG_OS || "unknown")
+  .replaceAll("{{shell}}", `${shell} (${shellVer})`)
+  .replaceAll("{{shell_note}}", legacyBash)
+  .replaceAll("{{tools}}", process.env.DOUG_TOOLS || "unknown");
 let user = "";
 try { user = fs.readFileSync(userPath, "utf8").trim(); } catch {}
 if (user) out += `\nContext from ${name}'s DOUG.md (${userPath}):\n${user}\n`;

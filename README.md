@@ -33,13 +33,34 @@ template, and enforces a clear line between his tasks and yours.
   `DOUG_CODING_AGENT_DIR`, since `configDir` alone would send it to `~/.agents`),
   while per-project resources use the standard `.agents/` dir (from `configDir`) —
   so doug drops into any repo without leaving a branded config folder behind.
-- `prompts/system.template.md` is doug's identity/system prompt, with
-  `{{name}}`/`{{about}}` placeholders. On every launch the launcher renders it
-  with `~/.doug/profile.json` into `~/.doug/agent/SYSTEM.md`, where pi
+- `prompts/system.template.md` is doug's identity/system prompt. On every launch
+  the launcher renders it — against `~/.doug/profile.json` and ground truth
+  resolved fresh from the machine (see [Prompt placeholders](#prompt-placeholders))
+  — into `~/.doug/agent/SYSTEM.md`, where pi
   picks it up as a full system-prompt replacement. Missing profile on an
   interactive first run triggers a short onboarding prompt; non-interactive
   runs fall back to "the user". Edit template or profile; both take effect on
   the next launch.
+
+### Prompt placeholders
+
+`bin/doug` substitutes these when rendering `system.template.md`. The identity
+pair comes from the profile; the rest is an Environment block of ground truth,
+re-resolved every launch so the prompt states facts instead of assumptions.
+
+| Placeholder | Source | Why it exists |
+| --- | --- | --- |
+| `{{name}}` | `profile.json` | Who doug is working with. |
+| `{{about}}` | `profile.json` | Their role and standing notes, or empty. |
+| `{{date}}` | local date, `en-CA` (ISO, not UTC) | Stops doug disbelieving repo timestamps that postdate its training data — Rails migration filenames are the usual trigger. Date only: `SYSTEM.md` is rewritten every launch, and a clock would churn the prompt all day. |
+| `{{os}}` | `uname -s -r` | BSD vs GNU flag splits (`sed -i`, `date`, `stat`, `xargs`). |
+| `{{shell}}` | pi's own resolution order | pi runs the bash tool through `/bin/bash -c`, **not** `$SHELL` — so doug must not assume the user's login-shell syntax, aliases, or functions. |
+| `{{shell_note}}` | `BASH_VERSION` | Warns off bash 4+ syntax when `/bin/bash` is 3.x, as it is on macOS. Empty otherwise. |
+| `{{tools}}` | `command -v rg fd sd jq` | The tool-preference list is a probe, not an assertion, so the template survives a machine without them. |
+
+The same facts are exported as `DOUG_PLATFORM`, `DOUG_OS`, `DOUG_SHELL`,
+`DOUG_SHELL_VER`, and `DOUG_TOOLS`, so extensions can read them from
+`process.env` rather than re-detecting.
 
 ## Install
 
@@ -110,10 +131,15 @@ all). Every one is handled in-process by doug's extensions — no model loop:
 | `/rewind [n]` | Discard the last turn from context — moves the session back to before your last message, so a path doug shouldn't have taken is gone rather than argued out of. `/rewind 2` goes back two turns. Files are **not** reverted; the confirm names what stays on disk. |
 | `/clear` | Start a fresh session — an alias for pi's built-in `/new`, for muscle memory from other tools. |
 
-Plans are written by the model calling the `save_plan` tool (plan mode only) —
-its typed schema requires goal/grounding/steps, and doug asks you to approve
-(Save / Not yet / Push back) before anything lands on disk. Edit modes and their
-boot default are detailed under
+Plans are written by the model calling the `save_plan` tool — its typed schema
+requires goal/grounding/steps, and doug asks you to approve (Save / Not yet /
+Push back) before anything lands on disk. `save_plan` works in **any mode**, not
+just plan mode: when an approach gets agreed mid-task, doug can persist it
+without a `/plan` detour that throws away the context you just built. What plan
+mode adds is the read-only discipline and the grounding depth, not access to the
+tool. Doug also distinguishes a *sketch* (a few bullets in chat, for work
+happening now) from a *plan* (this file, for a fresh session), and says which one
+it's offering. Edit modes and their boot default are detailed under
 [What shapes doug's behavior](#what-shapes-dougs-behavior); race modes override
 them all.
 
@@ -144,7 +170,7 @@ SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 | repo `agent/extensions/flipflop.ts` | Flip-flop detector: a 3rd edit to the same file with the same command re-run between edits (spray-and-pray debugging) triggers a live check-in; blocked outright when running unattended |
 | repo `agent/extensions/aliases.ts` | Command aliases for muscle memory from other tools: `/clear` starts a fresh session (pi's built-in `/new`) |
 | repo `agent/extensions/rewind.ts` | Backs `/rewind`: walks the session branch to the Nth-last user message, warns which files the discarded turns edited, then `navigateTree`s the leaf back there (optionally leaving a one-line summary of the abandoned direction, labelled `rewound`). Keeps no state of its own — the file list is derived from the session's own tool calls |
-| repo `agent/extensions/permissions.ts` | The policy behind the edit modes and plan [commands](#commands). Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; the footer shows the current mode. Plan mode is read-only for code — the model persists a plan only through the `save_plan` tool (typed schema requires goal/grounding/steps; you approve before it writes), and `/execute-plan` runs it in a fresh session told to trust the plan as its orientation rather than re-exploring the repo |
+| repo `agent/extensions/permissions.ts` | The policy behind the edit modes and plan [commands](#commands). Bash: mutative commands prompt Allow once / Always allow / Deny; "always" persists only the exact command to `~/.doug/permissions.json` (global to all sessions); prefix grants (`allowPrefixes`) work but are hand-edit only; read-only and guardrails-covered commands are exempt. Edits: sessions boot in manual mode — every edit/write prompts Allow / Allow all edits / Deny; the footer shows the current mode. Plan mode is read-only for code — the model persists a plan only through the `save_plan` tool (typed schema requires goal/grounding/steps; you approve before it writes), which is available in every mode so an agreed plan never needs a `/plan` detour to be saved, and `/execute-plan` runs it in a fresh session told to trust the plan as its orientation rather than re-exploring the repo |
 | `.agents/SYSTEM.md` (in a project) | Replaces the system prompt for that project |
 | `.agents/APPEND_SYSTEM.md` (in a project) | Appends to the system prompt instead of replacing |
 | `AGENTS.md` / `CLAUDE.md` (in a project) | Project context, loaded from cwd and ancestors; `AGENTS.md` shadows `CLAUDE.md` in the same directory. Declaring a **test watcher** here (e.g. "Tests: guard runs continuously — don't run rspec yourself") flips doug's verification from executing tests to naming the expected result, which is what you want when you're already watching the output |

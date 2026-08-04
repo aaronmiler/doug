@@ -269,12 +269,21 @@ const plansDirOf = (proj: string) => join(process.env.DOUG_HOME!, "plans", basen
   check("save_plan 'push back' feeds the note back", r2?.isError === true && String(r2.content[0].text).includes("add error handling"));
 }
 
-// save_plan refused outside plan mode
+// save_plan works outside plan mode (no /plan detour), still gated on approval
 {
   const proj = mkdtempSync(join(tmpdir(), "doug-saveplan3-"));
-  const s = editSession({ cwd: proj });
+  const s = editSession({ cwd: proj, choose: "Save it" });
   const r = await s.savePlan({ goal: "g", grounding: "x", steps: ["y"] });
-  check("save_plan refused outside plan mode", r?.isError === true);
+  const files = readdirSync(plansDirOf(proj)).filter((f: string) => f.endsWith(".md"));
+  check("save_plan writes outside plan mode", r?.isError !== true && files.length === 1);
+
+  const proj2 = mkdtempSync(join(tmpdir(), "doug-saveplan4-"));
+  const s2 = editSession({ cwd: proj2, choose: "Not yet — keep refining" });
+  await s2.auto();
+  const r2 = await s2.savePlan({ goal: "g", grounding: "x", steps: ["y"] });
+  let wrote = false;
+  try { wrote = readdirSync(plansDirOf(proj2)).some((f: string) => f.endsWith(".md")); } catch {}
+  check("save_plan still needs approval outside plan mode", r2?.isError === true && !wrote);
 }
 
 // Plan instructions inject only in plan mode; /plan deep escalates mid-plan

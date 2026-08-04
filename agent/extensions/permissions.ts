@@ -464,18 +464,17 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // save_plan is the ONLY way to persist a plan (plan mode blocks raw writes).
-  // The typed schema makes structure a precondition; the user approves the save.
+  // save_plan is the ONLY way to persist a plan (plan mode blocks raw writes),
+  // but it is NOT plan-mode-only: a plan worth saving often gets agreed mid-task,
+  // and gating on the mode just forced a context-losing /plan detour. The typed
+  // schema makes structure a precondition; the confirm prompt is the real brake.
   pi.registerTool({
     name: "save_plan",
     label: "Save plan",
-    description: `Persist the agreed plan to a file. Plan mode only. Call this only once ${USER} has agreed the plan is ready — ${USER} confirms the save, and may push back with changes.`,
+    description: `Persist an agreed plan to a file for a later fresh session (/execute-plan). Available in any mode. Call this once ${USER} has agreed the plan is ready — ${USER} confirms the save, and may push back with changes.`,
     parameters: PLAN_PARAMS as any,
     executionMode: "sequential",
     async execute(_toolCallId: string, params: PlanParams, _signal: unknown, _onUpdate: unknown, ctx: any) {
-      if (editMode !== "plan") {
-        return { isError: true, content: [{ type: "text", text: "save_plan is only available in plan mode (/plan)." }] };
-      }
       if (ctx.hasUI) {
         const SAVE = "Save it";
         const NOT_YET = "Not yet — keep refining";

@@ -27,12 +27,12 @@ Three pieces do all the work:
 1. **`bin/doug` (the launcher)** — regenerates the shim at `~/.doug/shim` on every launch (vendored pi's `package.json` patched with `piConfig: { name: "doug", configDir: ".agents" }` + symlinks to pi's `dist`/`docs`/etc.), points `PI_PACKAGE_DIR` at it, and runs the vendored pi. It also: resolves a satisfying node (`DOUG_NODE` → PATH → version managers), renders the identity template into `~/.doug/agent/SYSTEM.md`, runs first-run profile onboarding, handles doug's own subcommands (`update`, `--version`) before pi sees them, and translates `--push`/`--flat-out` race-mode flags into `DOUG_PUSH`/`DOUG_FLAT_OUT` env vars.
 
 2. **`agent/extensions/*.ts` (pi extensions)** — symlinked into `~/.doug/agent/extensions/` at install; hot-reload with `/reload`. They read repo-relative files at runtime via `DOUG_REPO_DIR` (exported by `bin/doug`), so they resolve `prompts/` without guessing.
-   - `permissions.ts` — the biggest piece. Backs the edit modes and plan commands (`/manual` `/auto` `/plan` `/execute-plan` `/plans`), the bash Allow-once/Always/Deny prompts, and the `save_plan` tool. Persists to `~/.doug/permissions.json` and `~/.doug/config.json`.
+   - `permissions.ts` — the biggest piece. Backs the edit modes and plan commands (`/manual` `/auto` `/plan` `/execute-plan` `/plans`), the bash Allow-once/Always/Deny prompts, and the `save_plan` tool (available in every mode, gated on a confirm rather than on plan mode). Persists to `~/.doug/permissions.json` and `~/.doug/config.json`.
    - `guardrails.ts` — hard bash blocks: mutative git, secret reads, sudo, catastrophic `rm`; installs/system changes require a live confirm.
    - `flipflop.ts` — detects spray-and-pray debugging (a 3rd edit to the same file with the same command re-run between edits) and forces a human check-in.
    - `aliases.ts` — maps familiar command names from other tools onto doug's own. Currently just `/clear` → a fresh session (the built-in `/new`).
 
-3. **`prompts/*.template.md` (identity + plan prompts)** — `system.template.md` is doug's system prompt with `{{name}}`/`{{about}}` placeholders, rendered against `~/.doug/profile.json` on every launch. `plan-mode.template.md` is loaded by `permissions.ts` with `{{user}}`/`{{depth_note}}` substitution.
+3. **`prompts/*.template.md` (identity + plan prompts)** — `system.template.md` is doug's system prompt with `{{name}}`/`{{about}}` placeholders plus an Environment block of machine ground truth, rendered against `~/.doug/profile.json` and the live machine on every launch (the placeholder table in `README.md` is the reference; the same facts are exported as `DOUG_*` env vars for extensions). `plan-mode.template.md` is loaded by `permissions.ts` with `{{user}}`/`{{depth_note}}` substitution.
 
 ### Runtime layout (not in this repo)
 
