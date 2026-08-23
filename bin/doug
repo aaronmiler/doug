@@ -245,6 +245,7 @@ fs.writeFileSync(outPath, out);
 EOF
 ln -sfn "$REPO_DIR/agent/extensions" "$DOUG_HOME/agent/extensions"
 ln -sfn "$REPO_DIR/agent/themes" "$DOUG_HOME/agent/themes"
+ln -sfn "$REPO_DIR/agent/agents" "$DOUG_HOME/agent/agents"
 
 # doug resolves skills from ~/.doug/skills by default. pi auto-scans its own
 # agent dir (~/.doug/agent/skills), but doug keeps skills in the flat top-level

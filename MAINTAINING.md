@@ -12,6 +12,8 @@ bin/doug                    launcher (shim, profile onboarding, template render)
 prompts/system.template.md  doug's identity template (rendered with profile.json)
 prompts/plan-mode.template.md  plan-mode prompt (loaded by the permissions extension)
 agent/extensions/           guardrails + future doug extensions (symlinked)
+agent/extensions/subagent/  vendored from pi's examples/extensions/subagent — see below
+agent/agents/               subagent definitions (scout.md), symlinked to ~/.doug/agent/agents
 patches/                    cosmetic branding patch for the vendored pi
 scripts/bump-pi.sh          bump pi: pin + patch rename + reinstall, in one step
 scripts/check-pi-upgrade.sh dry-run a pi bump in a throwaway sandbox
@@ -27,6 +29,29 @@ pi's TUI header is hardcoded (π wordmark, "Pi can explain…" startup line), so
 patch applied by `postinstall`: the doug-fir boot mark with wordmark and
 keybinding hints inlined beside it (stacking on narrow terminals), and
 doug-flavored startup text. That's the only place pi's code is modified.
+
+## Vendored extension: subagent
+
+`agent/extensions/subagent/{index.ts,agents.ts}` is a copy — not a symlink — of
+pi's `examples/extensions/subagent/{index.ts,agents.ts}`, with one local change:
+`runSingleAgent` in `index.ts` calls `resolveAgentModel()` (from the doug-added
+`model.ts` in the same directory) instead of using `agent.model` directly, so a
+per-agent model can be set without editing frontmatter — checked in order:
+`DOUG_<AGENT_NAME>_MODEL` env (one-off), `agentModels[name]` in
+`~/.doug/config.json` (persisted default), then the agent's frontmatter `model`.
+`model.ts` is split out from `index.ts` on purpose: `index.ts` imports
+`@earendil-works/pi-tui` and `pi-ai`, which only resolve through pi's own
+jiti-aliased extension loader, not node's native resolution — keeping the
+override logic in its own leaf file lets `test/subagent.test.ts` unit-test it
+with plain `node --experimental-strip-types`, matching the rest of `npm test`.
+It's copied rather than symlinked into the vendored pi tree because that tree
+is patch-managed and reserved for the branding patch only (see Branding
+patches above).
+
+On a pi bump, diff the upstream example against the vendored copy
+(`node_modules/@earendil-works/pi-coding-agent/examples/extensions/subagent/`) and
+re-apply the local change if upstream moved. Not covered by `bump-pi.sh` or
+`check-pi-upgrade.sh` — check it by hand.
 
 ## Upgrading pi
 
