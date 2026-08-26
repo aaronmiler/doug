@@ -207,6 +207,26 @@ done
 DOUG_TOOLS="${DOUG_TOOLS:-none of rg/fd/sd/jq}"
 export DOUG_PLATFORM DOUG_OS DOUG_SHELL DOUG_SHELL_VER DOUG_TOOLS
 
+# A per-launch scratch dir, so doug has somewhere localized to redirect command
+# output / write intermediate files instead of littering /tmp. Pruned by age
+# (not size) on every launch, so nobody has to remember to clean it up — but a
+# dir whose launching process is still alive is skipped regardless of age, so
+# a long-running session never has its scratch dir ripped out from under it.
+SCRATCH_ROOT="$DOUG_HOME/tmp"
+mkdir -p "$SCRATCH_ROOT"
+for d in "$SCRATCH_ROOT"/*/; do
+  [[ -d "$d" ]] || continue
+  [[ -n "$(find "$d" -maxdepth 0 -mtime +7)" ]] || continue
+  if [[ -f "$d/.lock" ]] && kill -0 "$(cat "$d/.lock" 2>/dev/null)" 2>/dev/null; then
+    continue
+  fi
+  rm -rf "$d"
+done
+DOUG_SCRATCH_DIR="$SCRATCH_ROOT/$(date +%Y%m%d-%H%M%S)-$$"
+mkdir -p "$DOUG_SCRATCH_DIR"
+echo "$$" > "$DOUG_SCRATCH_DIR/.lock"
+export DOUG_SCRATCH_DIR
+
 # doug's identity: render the repo template + profile into the live system
 # prompt, appending ~/.doug/DOUG.md (the user's global context, CLAUDE.md-style)
 # if present. Extensions stay symlinked from the repo.
@@ -236,7 +256,8 @@ let out = fs.readFileSync(tplPath, "utf8")
   .replaceAll("{{os}}", process.env.DOUG_OS || "unknown")
   .replaceAll("{{shell}}", `${shell} (${shellVer})`)
   .replaceAll("{{shell_note}}", legacyBash)
-  .replaceAll("{{tools}}", process.env.DOUG_TOOLS || "unknown");
+  .replaceAll("{{tools}}", process.env.DOUG_TOOLS || "unknown")
+  .replaceAll("{{scratch_dir}}", process.env.DOUG_SCRATCH_DIR || "");
 let user = "";
 try { user = fs.readFileSync(userPath, "utf8").trim(); } catch {}
 if (user) out += `\nContext from ${name}'s DOUG.md (${userPath}):\n${user}\n`;

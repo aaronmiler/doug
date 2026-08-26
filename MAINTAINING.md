@@ -102,6 +102,58 @@ deliberate, not reactive. Re-enable the nag for one run with an empty value:
 `PI_SKIP_VERSION_CHECK= doug …` (pi treats any non-empty value as "skip", so use
 the empty string, not `0`).
 
+## Known upstream issues
+
+### Large, quote-dense `edit` calls occasionally corrupt (pi 0.83.0, observed 2026-08-25)
+
+Symptom: the built-in `edit` tool intermittently fails validation with `path`
+and/or `edits.0.oldText` missing, e.g.:
+
+```
+Validation failed for tool "edit":
+  - path: must have required properties path
+  - edits.0: must be object
+
+Received arguments:
+{
+  "edits": "[{\"newText\">export * from \"./Payouts/Payouts\"\n..."
+}
+```
+
+Traced (not just suspected) to `@earendil-works/pi-ai`'s
+`dist/utils/json-parse.js`: at `content_block_stop`, pi runs
+`parseStreamingJson()` on the fully-accumulated tool-input text. If
+`JSON.parse` fails, `repairJson()` does a naive single-pass, escape-unaware
+toggle of "am I inside a string" on every bare `"`; if that still doesn't
+parse, it falls through to the lenient third-party `partial-json` parser
+(built for genuinely *incomplete* streams, not *malformed* ones) and returns
+whatever it guesses — silently, with no error surfaced. Every observed
+failure was a large edit whose replacement text was packed with literal
+double quotes (JSX `className="..."`, Ruby strings, a TS barrel file
+re-exporting quoted paths) — exactly the shape that breaks if the model
+drops one escape backslash somewhere in a huge JSON string: `JSON.parse`
+fails, the repair heuristic misreads string boundaries around the bad spot,
+and the fallback parser reconstructs something structurally nonsensical
+(`path` gone, `edits` collapsed into one corrupted string).
+
+pi's built-in Anthropic models already set `supportsStrictTools`, but the
+built-in `edit` tool (`dist/core/tools/edit.js`) never sets
+`constrainedSampling` on its schema — so this specific tool call isn't
+constrained to valid JSON at the token level even though the model/provider
+combination supports it. Turning that on would very likely close this off
+entirely, since strict/schema-constrained sampling can't emit a broken
+escape sequence in the first place.
+
+Current mitigation is prompt-only (`prompts/system.template.md`): doug is
+told to keep quote-dense edits small, since only large, quote-heavy single
+edits have triggered this. It reduces frequency, it doesn't fix the
+underlying parser. Not filed upstream yet.
+
+**If pi ships a fix** (either constrained sampling on `edit`, or
+`parseStreamingJson`/`repairJson` failing loudly instead of silently
+returning a corrupted guess), drop the prompt mitigation above and this
+section.
+
 ## Node resolution
 
 pi declares its floor in `engines` (currently >=22.19), and the launcher reads

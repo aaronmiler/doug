@@ -57,10 +57,11 @@ re-resolved every launch so the prompt states facts instead of assumptions.
 | `{{shell}}` | pi's own resolution order | pi runs the bash tool through `/bin/bash -c`, **not** `$SHELL` — so doug must not assume the user's login-shell syntax, aliases, or functions. |
 | `{{shell_note}}` | `BASH_VERSION` | Warns off bash 4+ syntax when `/bin/bash` is 3.x, as it is on macOS. Empty otherwise. |
 | `{{tools}}` | `command -v rg fd sd jq` | The tool-preference list is a probe, not an assertion, so the template survives a machine without them. |
+| `{{scratch_dir}}` | `~/.doug/tmp/<timestamp>-<pid>`, created fresh each launch | Gives doug somewhere localized to redirect command output / intermediate files instead of `/tmp`. Dirs older than 7 days are pruned on launch, so no manual cleanup is needed. |
 
 The same facts are exported as `DOUG_PLATFORM`, `DOUG_OS`, `DOUG_SHELL`,
-`DOUG_SHELL_VER`, and `DOUG_TOOLS`, so extensions can read them from
-`process.env` rather than re-detecting.
+`DOUG_SHELL_VER`, `DOUG_TOOLS`, and `DOUG_SCRATCH_DIR`, so extensions can read
+them from `process.env` rather than re-detecting.
 
 ## Install
 
@@ -181,6 +182,7 @@ SYSTEM.md, extension/theme discovery). If doug invented it, it's top-level.
 | `~/.doug/agent/agents/` (symlink to repo `agent/agents/`) | Subagent definitions for `agent/extensions/subagent/` — markdown with YAML frontmatter (`name`, `description`, `tools`, optional `model`). Ships `scout.md` (read-only recon) |
 | `.agents/{skills,prompts,themes,extensions}/` | Same, scoped to one project |
 | `~/.doug/plans/<project>/` | Plan-mode output: `<date>-<slug>.md` files (written by `save_plan`) plus a sibling `.state.json` tracking each plan's written/dispatched lifecycle. Kept in the home dir (namespaced by project dir name) so no repo has to gitignore scratch plans; `/execute-plan` scopes to the current project and defaults to the newest un-dispatched plan. Plans are grounded in one repo's `file:line` refs |
+| `~/.doug/tmp/<timestamp>-<pid>/` | Per-launch scratch dir (see [Prompt placeholders](#prompt-placeholders), `{{scratch_dir}}`). Dirs older than 7 days are pruned automatically at launch, except one whose `.lock` file names a still-running PID — so a long-held session keeps its scratch dir past the 7-day cutoff |
 | `~/.doug/agent/models.json` | Custom model/provider catalog |
 | `~/.doug/agent/auth.json` | Provider credentials (machine-local, never in this repo) |
 | `patches/` | Cosmetic branding patch applied to the vendored pi on `npm install` |
